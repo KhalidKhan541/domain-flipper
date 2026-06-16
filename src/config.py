@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     moz_api_key: Optional[str] = None
     google_safe_browsing_key: Optional[str] = None
 
+    # Outbound outreach
+    max_outbound_per_run: int = 20
+
     # Offline mode — skip external HTTP calls, use heuristics/optimistic defaults
     offline_mode: bool = False
 

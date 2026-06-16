@@ -15,6 +15,7 @@ from src.utils import setup_logger
 from src.database import Database
 from src.coordinators.broker import BrokerCoordinator
 from src.notifiers import TelegramNotifier, DiscordNotifier, EmailNotifier
+from src.outreach.engine import OutboundEngine
 from src.reporting import MarkdownReportGenerator, CSVReportGenerator, JSONReportGenerator
 
 
@@ -23,11 +24,15 @@ class DomainBroker:
         self.logger: logging.Logger = setup_logger("DomainBroker")
         self.db: Database = Database(settings.database_path)
         self.coordinator = BrokerCoordinator(db=self.db)
+        self.outbound = OutboundEngine(db_path=str(settings.database_path))
         self.notifiers: list[Any] = []
         self.reporters: list[Any] = []
 
     async def initialize(self) -> None:
         await self.db.init_db()
+
+        # Initialize outbound engine
+        await self.outbound.initialize()
 
         tg = TelegramNotifier()
         dc = DiscordNotifier()
@@ -59,6 +64,9 @@ class DomainBroker:
                 self.logger.info("Report saved: %s", path)
             except Exception as e:
                 self.logger.error("Report generation failed: %s", e)
+
+    async def run_outbound(self, domains: list[dict]) -> list[dict]:
+        return await self.outbound.process_domains(domains, max_count=settings.max_outbound_per_run)
 
     async def send_notifications(self, domains: list[dict[str, Any]]) -> None:
         if not self.notifiers:
@@ -99,7 +107,7 @@ class DomainBroker:
         self.logger.info("=" * 50)
 
         try:
-            self.logger.info("Step 1/4: Collecting domains…")
+            self.logger.info("Step 1/5: Collecting domains…")
             domains = await self.collect_all()
 
             if not domains:
@@ -107,7 +115,7 @@ class DomainBroker:
                 await self.send_notifications([])
                 return
 
-            self.logger.info("Step 2/4: Broker-analyzing domains…")
+            self.logger.info("Step 2/5: Broker-analyzing domains…")
             analyzed = await self.analyze_all(domains)
 
             if not analyzed:
@@ -115,17 +123,25 @@ class DomainBroker:
                 await self.send_notifications([])
                 return
 
-            self.logger.info("Step 3/4: Generating reports…")
+            self.logger.info("Step 3/5: Running outbound pipeline (online mode)…")
+            settings.offline_mode = False
+            try:
+                outbound_results = await self.run_outbound(analyzed)
+            finally:
+                settings.offline_mode = True
+
+            self.logger.info("Step 4/5: Generating reports…")
             await self.generate_reports(analyzed)
 
-            self.logger.info("Step 4/4: Sending notifications…")
+            self.logger.info("Step 5/5: Sending notifications…")
             await self.send_notifications(analyzed)
 
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             self.logger.info("Run completed in %.1fs", elapsed)
             self.logger.info(
-                "Results: %d domains analyzed, top broker grade: %s",
+                "Results: %d domains analyzed, %d outreach attempts, top broker grade: %s",
                 len(analyzed),
+                len(outbound_results),
                 analyzed[0]["broker_grade"] if analyzed else "N/A",
             )
 

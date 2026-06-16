@@ -7,6 +7,7 @@ from src.generators.thesaurus_generator import ThesaurusGenerator
 from src.checkers.rdap_checker import RDAPChecker
 from src.feeds.expireddomains_feed import ExpiredDomainsFeed
 from src.feeds.auction_feed import AuctionFeed
+from src.feeds.commoncrawl_feed import CommonCrawlFeed
 from src.database import Database
 import asyncio
 from typing import Optional
@@ -26,7 +27,7 @@ class DomainSourceCoordinator:
         self.keyword_gen = KeywordGenerator()
         self.thesaurus_gen = ThesaurusGenerator()
         self.checker = RDAPChecker()
-        self.feeds = [ExpiredDomainsFeed(), AuctionFeed()]
+        self.feeds = [ExpiredDomainsFeed(), AuctionFeed(), CommonCrawlFeed()]
         self.db = db or Database(settings.database_path)
 
     async def discover(self, max_domains: int = 200) -> list[dict]:
