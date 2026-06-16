@@ -27,6 +27,7 @@ jobs:
       - name: Create .env from secrets
         run: |
           echo "CATCHDOMS_API_KEY=${{ secrets.CATCHDOMS_API_KEY }}" >> .env
+          echo "CRAWLY_API_KEY=${{ secrets.CRAWLY_API_KEY }}" >> .env
           echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
           echo "TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> .env
           echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" >> .env

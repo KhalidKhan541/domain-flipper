@@ -18,63 +18,83 @@ class MarkdownReportGenerator:
         lines: list[str] = []
         total = len(domains)
 
-        # Header
-        lines.append(f"# Daily Domain Report - {date}")
+        lines.append(f"# Daily Broker Report - {date}")
         lines.append("")
 
-        # Summary
         lines.append("## Summary")
         lines.append("")
-        lines.append(f"- **Total domains found:** {total}")
+        lines.append(f"- **Total broker opportunities:** {total}")
         lines.append(f"- **Report date:** {date}")
-        lines.append(f"- **Max bid:** ${settings.max_bid}")
-        lines.append(f"- **Preferred range:** ${settings.preferred_min} – ${settings.preferred_max}")
         lines.append("")
 
-        # Key metrics
-        scores = [d.get("final_score", 0) or 0 for d in domains if d.get("final_score") is not None]
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-        grade_counts: dict[str, int] = {}
+        broker_grades: dict[str, int] = {}
+        total_est_value = 0
+        total_commission = 0
         for d in domains:
-            g = d.get("opportunity_grade", "N/A")
-            grade_counts[g] = grade_counts.get(g, 0) + 1
+            g = d.get("broker_grade", "Cold")
+            broker_grades[g] = broker_grades.get(g, 0) + 1
+            total_est_value += d.get("estimated_value", 0) or 0
+            commission = d.get("commission", {}).get("amount", 0) or 0
+            total_commission += commission
 
-        lines.append("### Key Metrics")
+        order = ["Hot Lead", "Warm", "Lukewarm", "Cold"]
+        lines.append("### Broker Grades")
         lines.append("")
-        lines.append(f"- **Average score:** {avg_score:.1f}")
-        for grade in sorted(grade_counts, key=lambda g: "A+ A B C Avoid N/A".index(g) if g in "A+ A B C Avoid N/A" else 99):
-            lines.append(f"- **{grade}:** {grade_counts[grade]}")
+        for grade in order:
+            count = broker_grades.get(grade, 0)
+            bar = "█" * min(count, 20)
+            lines.append(f"- **{grade}:** {count} {bar}")
+        lines.append("")
+        lines.append(f"- **Total estimated value:** ${total_est_value:,}")
+        lines.append(f"- **Total potential commission:** ${total_commission:,}")
         lines.append("")
 
-        # Top 20 table
-        lines.append("## Top 20 Domains")
+        lines.append("## Top 20 Broker Opportunities")
         lines.append("")
-        lines.append("| # | Domain | Price | DR | RD | Age | Category | Score | Grade |")
-        lines.append("|---|--------|-------|----|----|-----|----------|-------|-------|")
+        lines.append("| # | Domain | Est. Value | Commission | Buyer Leads | Broker Score | Grade |")
+        lines.append("|---|--------|------------|------------|-------------|--------------|-------|")
         for i, d in enumerate(domains[:20], 1):
-            price = d.get("price", 0) or 0
-            dr = d.get("dr", 0) or 0
-            rd = d.get("referring_domains", 0) or 0
-            age = d.get("domain_age", 0) or 0
-            cat = d.get("category", "general") or "general"
-            score = d.get("final_score", 0) or 0
-            grade = d.get("opportunity_grade", "N/A") or "N/A"
             name = d.get("domain_name", "unknown")
-            price_str = f"${price:.2f}" if isinstance(price, (int, float)) else f"${price}"
-            age_str = f"{age}y" if age else "-"
-            lines.append(f"| {i} | {name} | {price_str} | {dr} | {rd} | {age_str} | {cat} | {score:.0f} | {grade} |")
+            est = d.get("estimated_value", 0) or 0
+            comm = d.get("commission", {}).get("amount", 0) or 0
+            leads = d.get("buyer_leads", {}).get("total_leads", 0) or 0
+            bscore = d.get("broker_score", 0) or 0
+            bgrade = d.get("broker_grade", "Cold") or "Cold"
+            lines.append(f"| {i} | {name} | ${est:,} | ${comm:,} | {leads} | {bscore} | {bgrade} |")
         lines.append("")
 
-        # Details
         lines.append("## Domain Details")
         lines.append("")
         for i, d in enumerate(domains[:20], 1):
             name = d.get("domain_name", "unknown")
             lines.append(f"### {i}. {name}")
             lines.append("")
-            reason = d.get("reason", "")
-            if reason:
-                lines.append(f"**Reason:** {reason}")
+
+            marketplace = d.get("marketplace", {})
+            if marketplace.get("is_listed"):
+                lines.append(f"**Listed on:** {', '.join(marketplace.get('listings', []))}")
+                lines.append(f"**Min price:** ${marketplace.get('min_price', 0):,}")
+            else:
+                lines.append("**Not currently listed on marketplaces**")
+            lines.append("")
+
+            buyer_leads = d.get("buyer_leads", {})
+            leads_list = buyer_leads.get("leads", [])
+            if leads_list:
+                lines.append("**Potential buyers:**")
+                for lead in leads_list[:5]:
+                    lines.append(f"- {lead.get('company', 'Unknown')} ({lead.get('type', 'unknown')}) — {lead.get('reason', '')}")
+            lines.append("")
+
+            lines.append("**Broker metrics:**")
+            est = d.get("estimated_value", 0) or 0
+            comm = d.get("commission", {}).get("amount", 0) or 0
+            bscore = d.get("broker_score", 0) or 0
+            bgrade = d.get("broker_grade", "Cold") or "Cold"
+            lines.append(f"- Estimated value: ${est:,}")
+            lines.append(f"- Broker commission: ${comm:,} (15%)")
+            lines.append(f"- Broker score: {bscore}/100 — **{bgrade}**")
+
             fields = []
             if d.get("price"):
                 fields.append(f"**Price:** ${d['price']}")
@@ -84,32 +104,23 @@ class MarkdownReportGenerator:
                 fields.append(f"**TLD:** {d['tld']}")
             if d.get("source"):
                 fields.append(f"**Source:** {d['source']}")
-            if d.get("trust_score") is not None:
-                fields.append(f"**Trust Score:** {d['trust_score']}")
-            if d.get("seo_score") is not None:
-                fields.append(f"**SEO Score:** {d['seo_score']}")
-            if d.get("commercial_score") is not None:
-                fields.append(f"**Commercial Score:** {d['commercial_score']}")
-            if d.get("cleanliness_score") is not None:
-                fields.append(f"**Cleanliness Score:** {d['cleanliness_score']}")
-            if d.get("auction_end_date"):
-                fields.append(f"**Auction End:** {d['auction_end_date']}")
+            if d.get("dr") is not None:
+                fields.append(f"**DR:** {d['dr']}")
             if fields:
                 lines.append(" | ".join(fields))
             lines.append("")
 
-        # Footer
         lines.append("---")
-        lines.append(f"*Generated by Domain Flipper Bot on {date}*")
+        lines.append(f"*Generated by Domain Broker Bot on {date}*")
 
         return "\n".join(lines).strip()
 
     async def save(self, content: str, filename: str | None = None) -> Path:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        name = filename or f"report_{date}.md"
+        name = filename or f"broker_report_{date}.md"
         report_dir = Path("data/reports")
         report_dir.mkdir(parents=True, exist_ok=True)
         path = report_dir / name
         path.write_text(content, encoding="utf-8")
-        self.logger.info("Markdown report saved to %s", path)
+        self.logger.info("Markdown broker report saved to %s", path)
         return path

@@ -13,6 +13,16 @@ Automatically discovers undervalued expired and auction domains by scraping majo
 - **Reports**: Markdown, CSV, JSON formats
 - **Learning loop**: Tracks purchases and sales to refine scoring weights
 
+## How it works
+
+1. **Generate** — Domain name candidates from profitable niche keywords (AI, SaaS, Finance, Health, etc.)
+2. **Collect** — Real expired/expiring domains from free public feeds
+3. **Check** — RDAP availability verification for generated names
+4. **Analyze** — SEO metrics via Crawly API, history via Wayback, commercial scoring
+5. **Score** — Weighted scoring engine (40% SEO + 30% Commercial + 20% Trust + 10% Price)
+6. **Report** — Markdown, CSV, JSON reports
+7. **Notify** — Telegram, Discord, Email (optional)
+
 ## Quick Start
 
 ### 1. Clone and install
@@ -72,7 +82,11 @@ domain-flipper/
 │   ├── main.py              # Orchestrator
 │   ├── config.py            # Settings (.env)
 │   ├── database.py          # SQLite storage
-│   ├── collectors/          # Marketplace scrapers
+│   ├── generators/          # Domain name generation from keywords
+│   ├── checkers/            # RDAP/DNS availability checking
+│   ├── feeds/               # Free expired domain feed scrapers
+│   ├── coordinators/        # Domain source coordinator
+│   ├── collectors/          # Marketplace scrapers (deprecated)
 │   ├── analyzers/           # SEO, history, commercial, scoring
 │   ├── notifiers/           # Telegram, Discord, Email
 │   ├── reporting/           # Markdown, CSV, JSON

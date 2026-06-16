@@ -19,34 +19,34 @@ REPORT_DIR = Path("data/reports")
 def _build_html_table(domains: list[dict]) -> str:
     rows_html = ""
     for d in domains[:20]:
+        commission = d.get("commission", {}).get("amount", 0)
+        buyer_leads = d.get("buyer_leads", {}).get("total_leads", 0)
         rows_html += (
             "<tr>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('domain', '')}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>${d.get('price', 0)}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('dr', 'N/A')}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('rd', 'N/A')}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('age', 'N/A')}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('domain_name', '')}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>${d.get('estimated_value', 0):,}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>${commission}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{buyer_leads}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('broker_score', 0)}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('broker_grade', 'Cold')}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('category', 'Uncategorized')}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('final_score', 0)}</td>"
-            f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('grade', 'N/A')}</td>"
             "</tr>"
         )
 
     return (
         "<html>"
         "<body style='font-family:Arial,sans-serif;padding:20px;'>"
-        "<h2 style='color:#333;'>Daily Domain Report</h2>"
+        "<h2 style='color:#333;'>Daily Broker Report</h2>"
         "<table style='border-collapse:collapse;width:100%;max-width:900px;'>"
         "<thead>"
         "<tr style='background-color:#4CAF50;color:white;'>"
         "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Domain</th>"
-        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Price</th>"
-        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>DR</th>"
-        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>RD</th>"
-        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Age</th>"
-        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Category</th>"
-        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Score</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Est. Value</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Commission</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Buyer Leads</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Broker Score</th>"
         "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Grade</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Niche</th>"
         "</tr>"
         "</thead>"
         "<tbody>"
@@ -101,10 +101,10 @@ class EmailNotifier(BaseNotifier):
             return False
 
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        subject = f"Daily Domain Report - {date_str}"
+        subject = f"Daily Broker Report - {date_str}"
 
         html_body = _build_html_table(domains)
-        text_body = f"Daily Domain Report - {date_str}\n\nFound {len(domains)} domains."
+        text_body = f"Daily Broker Report - {date_str}\n\nFound {len(domains)} broker opportunities."
 
         msg = MIMEMultipart("mixed")
         msg["Subject"] = subject
@@ -129,7 +129,7 @@ class EmailNotifier(BaseNotifier):
             return False
 
         msg = MIMEText(message, "plain", "utf-8")
-        msg["Subject"] = "Domain Flipper Alert"
+        msg["Subject"] = "Domain Broker Alert"
         msg["From"] = self.email_from
         msg["To"] = self.email_to
 

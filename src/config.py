@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     # API keys
     catchdoms_api_key: Optional[str] = None
+    crawly_api_key: Optional[str] = None
     ahrefs_api_key: Optional[str] = None
     moz_api_key: Optional[str] = None
     google_safe_browsing_key: Optional[str] = None

@@ -18,19 +18,19 @@ def _escape_markdown(text: str) -> str:
 
 
 def _format_domain(domain: dict) -> str:
-    name = _escape_markdown(str(domain.get("domain", "Unknown")))
-    price = _escape_markdown(str(domain.get("price", "0")))
-    dr = _escape_markdown(str(domain.get("dr", "N/A")))
-    rd = _escape_markdown(str(domain.get("rd", "N/A")))
-    score = _escape_markdown(str(domain.get("final_score", "0")))
-    grade = _escape_markdown(str(domain.get("grade", "N/A")))
+    name = _escape_markdown(str(domain.get("domain_name", "Unknown")))
+    est_value = _escape_markdown(str(domain.get("estimated_value", "0")))
+    commission = _escape_markdown(str(domain.get("commission", {}).get("amount", "0")))
+    leads = _escape_markdown(str(domain.get("buyer_leads", {}).get("total_leads", "0")))
+    bscore = _escape_markdown(str(domain.get("broker_score", "0")))
+    bgrade = _escape_markdown(str(domain.get("broker_grade", "Cold")))
     category = _escape_markdown(str(domain.get("category", "Uncategorized")))
 
     return (
         f"*{name}*\n"
-        f"Price: ${price} | DR: {dr} | RD: {rd}\n"
-        f"Score: {score} | Grade: {grade}\n"
-        f"Category: {category}"
+        f"Est: ${est_value} | Commission: ${commission} | Leads: {leads}\n"
+        f"Broker Score: {bscore} | Grade: {bgrade}\n"
+        f"Niche: {category}"
     )
 
 
@@ -46,7 +46,7 @@ class TelegramNotifier(BaseNotifier):
             self.logger.warning("Telegram notifier is disabled")
             return False
 
-        lines = ["*Daily Domain Report*\n"]
+        lines = ["*Daily Broker Report*\n"]
         for domain in domains:
             lines.append(_format_domain(domain))
             lines.append("")

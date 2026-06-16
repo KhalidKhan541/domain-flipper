@@ -15,59 +15,63 @@ class JSONReportGenerator:
         self.logger: logging.Logger = setup_logger("JSONReport")
 
     async def generate(self, domains: list[dict[str, Any]]) -> str:
-        scores = [d.get("final_score", 0) or 0 for d in domains if d.get("final_score") is not None]
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-
-        grade_counts: dict[str, int] = {}
+        broker_grades: dict[str, int] = {}
+        total_est_value = 0
+        total_commission = 0
         for d in domains:
-            g = d.get("opportunity_grade", "N/A")
-            grade_counts[g] = grade_counts.get(g, 0) + 1
+            g = d.get("broker_grade", "Cold")
+            broker_grades[g] = broker_grades.get(g, 0) + 1
+            total_est_value += d.get("estimated_value", 0) or 0
+            commission = d.get("commission", {}).get("amount", 0) or 0
+            total_commission += commission
 
         top_domains: list[dict[str, Any]] = []
         for d in domains:
             entry = {
                 "domain_name": d.get("domain_name"),
-                "price": d.get("price"),
+                "estimated_value": d.get("estimated_value"),
+                "commission": d.get("commission"),
+                "broker_score": d.get("broker_score"),
+                "broker_grade": d.get("broker_grade"),
+                "marketplace": d.get("marketplace"),
+                "buyer_leads": {
+                    "total": d.get("buyer_leads", {}).get("total_leads", 0),
+                    "companies": [
+                        {"name": l.get("company"), "type": l.get("type")}
+                        for l in (d.get("buyer_leads", {}).get("leads", []) or [])[:5]
+                    ],
+                },
+                "category": d.get("category"),
                 "dr": d.get("dr"),
                 "referring_domains": d.get("referring_domains"),
                 "domain_age": d.get("domain_age"),
-                "category": d.get("category"),
                 "final_score": d.get("final_score"),
                 "opportunity_grade": d.get("opportunity_grade"),
-                "trust_score": d.get("trust_score"),
-                "seo_score": d.get("seo_score"),
-                "commercial_score": d.get("commercial_score"),
-                "cleanliness_score": d.get("cleanliness_score"),
-                "reason": d.get("reason"),
                 "source": d.get("source"),
-                "registrar": d.get("registrar"),
                 "tld": d.get("tld"),
-                "auction_end_date": d.get("auction_end_date"),
             }
             top_domains.append(entry)
 
         report = {
+            "report_type": "broker",
             "report_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-            "total_domains": len(domains),
-            "budget": {
-                "max_bid": settings.max_bid,
-                "preferred_max": settings.preferred_max,
-            },
+            "total_opportunities": len(domains),
             "summary": {
-                "avg_score": round(avg_score, 2),
-                "grade_counts": grade_counts,
+                "total_estimated_value": total_est_value,
+                "total_potential_commission": total_commission,
+                "broker_grade_counts": broker_grades,
             },
-            "top_domains": top_domains,
+            "opportunities": top_domains,
         }
 
         return json.dumps(report, indent=2, ensure_ascii=False)
 
     async def save(self, content: str, filename: str | None = None) -> Path:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        name = filename or f"report_{date}.json"
+        name = filename or f"broker_report_{date}.json"
         report_dir = Path("data/reports")
         report_dir.mkdir(parents=True, exist_ok=True)
         path = report_dir / name
         path.write_text(content, encoding="utf-8")
-        self.logger.info("JSON report saved to %s", path)
+        self.logger.info("JSON broker report saved to %s", path)
         return path

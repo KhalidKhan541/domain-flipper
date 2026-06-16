@@ -24,26 +24,27 @@ class DiscordNotifier(BaseNotifier):
         fields = [
             {
                 "name": "Summary",
-                "value": f"Found {count} domains, Top {top_count} listed below",
+                "value": f"Found {count} broker opportunities, Top {top_count} listed below",
                 "inline": False,
             }
         ]
 
         for domain in domains[:10]:
-            name = domain.get("domain", "Unknown")
-            price = domain.get("price", 0)
-            score = domain.get("final_score", 0)
-            grade = domain.get("grade", "N/A")
+            name = domain.get("domain_name", "Unknown")
+            est = domain.get("estimated_value", 0)
+            comm = domain.get("commission", {}).get("amount", 0)
+            bgrade = domain.get("broker_grade", "Cold")
+            leads = domain.get("buyer_leads", {}).get("total_leads", 0)
             fields.append(
                 {
                     "name": name,
-                    "value": f"Price: ${price} | Score: {score} | Grade: {grade}",
+                    "value": f"Est: ${est} | Comm: ${comm} | Leads: {leads} | Grade: {bgrade}",
                     "inline": True,
                 }
             )
 
         embed = {
-            "title": "Daily Domain Report",
+            "title": "Daily Broker Report",
             "color": 0x00FF00,
             "fields": fields,
             "footer": {"text": "Domain Flipper Bot"},

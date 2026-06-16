@@ -38,6 +38,8 @@ TLD_BACKLINK_BOOST = {
     ".co": 1.1,
 }
 
+CRAWLY_API_BASE = "https://www.getcrawly.com/api/v1"
+
 
 class SEOAnalyzer:
     def __init__(self) -> None:
@@ -180,6 +182,9 @@ class SEOAnalyzer:
     async def _estimate_backlinks(
         self, domain: str, domain_age: int
     ) -> tuple[int, int]:
+        dr, rd = await self._try_crawly_api(domain)
+        if dr > 0 and rd > 0:
+            return dr, rd
         dr, rd = await self._try_ahrefs_api(domain)
         if dr > 0 and rd > 0:
             return dr, rd
@@ -187,6 +192,28 @@ class SEOAnalyzer:
         if dr > 0 and rd > 0:
             return dr, rd
         return self._estimate_backlinks_fallback(domain, domain_age)
+
+    async def _try_crawly_api(self, domain: str) -> tuple[int, int]:
+        api_key = getattr(settings, "crawly_api_key", None)
+        if not api_key:
+            return 0, 0
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    f"{CRAWLY_API_BASE}/domain-authority",
+                    params={"domain": domain},
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    dr_val = int(data.get("authority_score", 0) or 0)
+                    rd_val = int(data.get("referring_domains", 0) or 0)
+                    self.logger.info("Crawly: %s DR=%d RD=%d", domain, dr_val, rd_val)
+                    return dr_val, rd_val
+                self.logger.warning("Crawly API returned %d for %s", resp.status_code, domain)
+        except Exception:
+            self.logger.debug("Crawly API failed for %s", domain, exc_info=True)
+        return 0, 0
 
     async def _try_ahrefs_api(self, domain: str) -> tuple[int, int]:
         api_key = getattr(settings, "ahrefs_api_key", None)
