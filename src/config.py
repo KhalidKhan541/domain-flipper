@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     moz_api_key: Optional[str] = None
     google_safe_browsing_key: Optional[str] = None
 
+    # Offline mode — skip external HTTP calls, use heuristics/optimistic defaults
+    offline_mode: bool = False
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

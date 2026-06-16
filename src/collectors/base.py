@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class BaseCollector(ABC):
-    def __init__(self, config: dict | None = None) -> None:
+    source: str = "base"
+
+    def __init__(self, config: Any | None = None) -> None:
         self.config = config or {}
+        self._offline_mode: bool = getattr(config, "offline_mode", False) if config else False
 
     @abstractmethod
     async def collect(self) -> list[dict]:
@@ -22,3 +26,9 @@ class BaseCollector(ABC):
         - referring_domains: int (default 0)
         - domain_age: int (default 0)
         """
+
+    async def _collect_offline(self) -> list[dict]:
+        """Return mock data when in offline mode. Override in subclasses."""
+        import asyncio
+        await asyncio.sleep(0.01)
+        return []

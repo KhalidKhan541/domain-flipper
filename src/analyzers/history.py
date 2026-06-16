@@ -36,7 +36,26 @@ class HistoryAnalyzer:
     def __init__(self) -> None:
         self.logger = setup_logger("HistoryAnalyzer")
 
+    def _offline_defaults(self) -> dict[str, Any]:
+        return {
+            "cleanliness_score": 70.0,
+            "trust_score": 65.0,
+            "has_adult_history": False,
+            "has_gambling_history": False,
+            "has_pharma_history": False,
+            "has_malware_history": False,
+            "wayback_snapshots": 0,
+            "first_seen": "",
+            "ownership_changes": 0,
+            "spam_indicators": [],
+            "is_clean": True,
+        }
+
     async def analyze(self, domain: str) -> dict[str, Any]:
+        if settings.offline_mode:
+            self.logger.info("Offline mode — skipping HTTP calls for %s", domain)
+            return self._offline_defaults()
+
         result = dict(DEFAULT_RESPONSE)
         spam_indicators: list[str] = []
 
@@ -71,7 +90,7 @@ class HistoryAnalyzer:
 
         return result
 
-    @async_retry(max_attempts=2, delay=1.0)
+    @async_retry(max_attempts=2, delay=0.1)
     async def _fetch_wayback_snapshots(self, domain: str) -> list[list[str]]:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -141,7 +160,7 @@ class HistoryAnalyzer:
             parts.append(str(meta_desc["content"]))
         return " ".join(parts)
 
-    @async_retry(max_attempts=2, delay=1.0)
+    @async_retry(max_attempts=2, delay=0.1)
     async def _check_safe_browsing(self, domain: str) -> bool:
         api_key = getattr(settings, "google_safe_browsing_key", None)
         if not api_key:

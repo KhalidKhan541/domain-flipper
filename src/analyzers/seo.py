@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -42,11 +43,32 @@ class SEOAnalyzer:
     def __init__(self) -> None:
         self.logger = setup_logger("SEOAnalyzer")
 
+    def _estimate_offline(self, domain: str) -> dict[str, Any]:
+        name = domain.rsplit(".", 1)[0] if "." in domain else domain
+        dr = min(40, max(10, len(name) * 2))
+        referring_domains = random.randint(20, 100)
+        domain_age = random.randint(1, 5)
+        total_backlinks = self._estimate_total_backlinks(referring_domains)
+        anchor_diversity = self._estimate_anchor_diversity(referring_domains, total_backlinks)
+        seo_score = self._compute_seo_score(dr, referring_domains, domain_age, anchor_diversity)
+        return {
+            "dr": dr,
+            "referring_domains": referring_domains,
+            "total_backlinks": total_backlinks,
+            "anchor_diversity_score": anchor_diversity,
+            "domain_age": domain_age,
+            "traffic_estimate": self._estimate_traffic_fallback(dr, domain_age, total_backlinks),
+            "seo_score": seo_score,
+        }
+
     async def analyze(
         self,
         domain: str,
         domain_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if settings.offline_mode:
+            return self._estimate_offline(domain)
+
         result = dict(DEFAULT_RESPONSE)
         data = domain_data or {}
 
@@ -134,7 +156,7 @@ class SEOAnalyzer:
             self.logger.debug("WHOIS lookup failed for %s", domain, exc_info=True)
             return None
 
-    @async_retry(max_attempts=2, delay=1.0)
+    @async_retry(max_attempts=2, delay=0.1)
     async def _get_creation_from_domaintools(self, domain: str) -> int | None:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             resp = await client.get(WHOIS_DOMAINTOOLS_URL.format(domain=domain))
@@ -260,7 +282,7 @@ class SEOAnalyzer:
             self.logger.debug("SimilarWeb scrape failed for %s", domain, exc_info=True)
         return self._estimate_traffic_fallback(dr, age, total_backlinks)
 
-    @async_retry(max_attempts=2, delay=1.0)
+    @async_retry(max_attempts=2, delay=0.1)
     async def _try_similarweb(self, domain: str) -> str | None:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             resp = await client.get(
