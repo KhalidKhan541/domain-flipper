@@ -1,0 +1,63 @@
+name: Daily Domain Discovery
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium
+      
+      - name: Create .env from secrets
+        run: |
+          echo "CATCHDOMS_API_KEY=${{ secrets.CATCHDOMS_API_KEY }}" >> .env
+          echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
+          echo "TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> .env
+          echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" >> .env
+          echo "SMTP_HOST=${{ secrets.SMTP_HOST }}" >> .env
+          echo "SMTP_PORT=587" >> .env
+          echo "SMTP_USER=${{ secrets.SMTP_USER }}" >> .env
+          echo "SMTP_PASS=${{ secrets.SMTP_PASS }}" >> .env
+          echo "EMAIL_FROM=${{ secrets.EMAIL_FROM }}" >> .env
+          echo "EMAIL_TO=${{ secrets.EMAIL_TO }}" >> .env
+          echo "AHREFS_API_KEY=${{ secrets.AHREFS_API_KEY }}" >> .env
+          echo "MOZ_API_KEY=${{ secrets.MOZ_API_KEY }}" >> .env
+          echo "MAX_BID=100" >> .env
+          echo "PREFERRED_MIN=10" >> .env
+          echo "PREFERRED_MAX=50" >> .env
+          echo "EXCEPTIONAL_MAX=300" >> .env
+      
+      - name: Run domain discovery
+        run: python -m src.main
+        env:
+          PYTHONUNBUFFERED: 1
+      
+      - name: Upload reports as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: domain-reports
+          path: data/reports/
+          retention-days: 30
+      
+      - name: Upload database
+        uses: actions/upload-artifact@v4
+        with:
+          name: domain-database
+          path: data/domains.db
+          retention-days: 7
