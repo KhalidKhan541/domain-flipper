@@ -1,71 +1,47 @@
 from __future__ import annotations
 
-import random
+import asyncio
+import re
 from typing import Any
 
-from src.config import settings
 from src.utils import setup_logger
 
-
-LEADS_BY_NICHE: dict[str, list[str]] = {
-    "ai": [
-        "OpenAI", "Anthropic", "Cohere", "Hugging Face", "Stability AI",
-        "Jasper AI", "Copy.ai", "Writer.com", "Runway ML", "Midjourney",
-        "Scale AI", "DataRobot", "H2O.ai", "C3 AI", "Pathmind",
-    ],
-    "saas": [
-        "Salesforce", "HubSpot", "Zendesk", "Slack", "Atlassian",
-        "Notion", "Airtable", "Asana", "Monday.com", "ClickUp",
-        "Freshworks", "Intercom", "DocuSign", "Box", "Dropbox",
-    ],
-    "finance": [
-        "Stripe", "Square", "Plaid", "Robinhood", "Coinbase",
-        "PayPal", "Revolut", "Wise", "Klarna", "Affirm",
-        "Chime", "Betterment", "Wealthfront", "SoFi", "Nubank",
-    ],
-    "health": [
-        "Teladoc", "Ro", "Hims", "Noom", "Calm",
-        "Headspace", "MyFitnessPal", "Fitbit", "Whoop", "Oura",
-        "One Medical", "Carbon Health", "Zymergen", "Illumina", "23andMe",
-    ],
-    "ecommerce": [
-        "Shopify", "BigCommerce", "Wix", "Squarespace", "WooCommerce",
-        "Magento", "Salesforce Commerce", "PrestaShop", "OpenCart", "Ecwid",
-        "Etsy", "Amazon", "eBay", "Walmart", "Target",
-    ],
-    "education": [
-        "Coursera", "Udemy", "edX", "Khan Academy", "Duolingo",
-        "Chegg", "Quizlet", "Byju's", "MasterClass", "Skillshare",
-        "Pluralsight", "DataCamp", "Brilliant", "Codecademy", "Knewton",
-    ],
-    "cybersecurity": [
-        "CrowdStrike", "Palo Alto", "Fortinet", "Zscaler", "Cloudflare",
-        "Okta", "SentinelOne", "Darktrace", "Snyk", "Rapid7",
-        "Tenable", "Check Point", "McAfee", "Trend Micro", "Cisco Security",
-    ],
-    "realestate": [
-        "Zillow", "Redfin", "Compass", "Opendoor", "Realtor.com",
-        "Airbnb", "Vrbo", "Booking.com", "CoStar", "Zumper",
-        "Trulia", "Homes.com", "Reonomy", "CREXi", "LoopNet",
-    ],
-    "productivity": [
-        "Notion", "Todoist", "Evernote", "Bear", "Roam Research",
-        "Obsidian", "Miro", "Trello", "Notability", "GoodNotes",
-        "Forest", "Focusmate", "RescueTime", "Clockify", "Toggl",
-    ],
-    "legal": [
-        "LegalZoom", "Rocket Lawyer", "Avvo", "Clio", "MyCase",
-        "PractiFi", "CaseText", "Casetext", "Ironclad", "Evisort",
-        "LexisNexis", "Thomson Reuters", "DocuSign Legal", "LawGeex", "Definely",
-    ],
+NICHE_MULTIPLIERS: dict[str, float] = {
+    "ai": 1.8,
+    "saas": 1.5,
+    "finance": 1.4,
+    "health": 1.3,
+    "ecommerce": 1.2,
+    "education": 1.1,
+    "cybersecurity": 1.3,
+    "realestate": 1.2,
+    "productivity": 1.1,
+    "legal": 1.0,
 }
 
-BUYER_PROFILES = {
-    "startup": "Early-stage startup looking to establish brand in niche",
-    "growth": "Growth-stage company expanding product line",
-    "enterprise": "Enterprise seeking strategic domain acquisition",
-    "investor": "Domain investor looking for premium assets",
-    "founder": "Solo founder / indie hacker building in niche",
+NICHE_BUYER_POTENTIAL: dict[str, str] = {
+    "ai": "very_high",
+    "saas": "high",
+    "finance": "high",
+    "cybersecurity": "high",
+    "health": "medium",
+    "ecommerce": "medium",
+    "education": "medium",
+    "realestate": "medium",
+    "productivity": "medium",
+    "legal": "low",
+}
+
+TLD_SCORES: dict[str, float] = {
+    "com": 90,
+    "io": 75,
+    "ai": 85,
+    "co": 70,
+    "net": 60,
+    "org": 55,
+    "dev": 65,
+    "app": 65,
+    "xyz": 40,
 }
 
 
@@ -76,14 +52,15 @@ class BrokerAnalyzer:
     async def analyze(self, domain_name: str, niche: str = "general") -> dict[str, Any]:
         self.logger.info("Broker analysis for %s (niche: %s)", domain_name, niche)
 
-        marketplace = await self._check_marketplaces(domain_name)
-        leads = self._find_buyer_leads(domain_name, niche)
+        availability = await self._check_domain_availability(domain_name)
+        marketplace_score = self._estimate_marketplace_score(domain_name, niche)
+        leads = self._estimate_buyer_leads(domain_name, niche)
         estimated_value = self._estimate_value(domain_name, niche)
         commission = self._estimate_commission(estimated_value)
         buyer_count = leads.get("total_leads", 0)
 
         broker_score = self._calculate_broker_score(
-            marketplace_score=marketplace.get("score", 50),
+            marketplace_score=marketplace_score,
             buyer_count=buyer_count,
             estimated_value=estimated_value,
         )
@@ -91,104 +68,94 @@ class BrokerAnalyzer:
         return {
             "domain_name": domain_name,
             "niche": niche,
-            "marketplace": marketplace,
+            "availability": availability,
+            "marketplace_score": marketplace_score,
             "buyer_leads": leads,
             "estimated_value": estimated_value,
             "commission": commission,
             "broker_score": broker_score,
             "broker_grade": self._assign_broker_grade(broker_score),
+            "data_source": "heuristic_only",
+            "note": "No live marketplace scraping. All values are heuristic estimates.",
         }
 
-    async def _check_marketplaces(self, domain_name: str) -> dict[str, Any]:
-        if settings.offline_mode:
-            self.logger.info("Offline mode — using mock marketplace data for %s", domain_name)
-            marketplaces = ["GoDaddy Auctions", "Afternic", "Sedo", "NameCheap", "Flippa"]
-            listing_count = random.randint(0, 3)
-            selected = random.sample(marketplaces, listing_count) if listing_count > 0 else []
+    async def _check_domain_availability(self, domain_name: str) -> dict[str, Any]:
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                resp = await client.head(f"http://{domain_name}")
+                resolved = resp.status_code < 400
+                return {
+                    "resolves": resolved,
+                    "status_code": resp.status_code,
+                    "likely_registered": True,
+                    "note": "Domain resolves — likely registered and parked or in use.",
+                }
+        except httpx.ConnectError:
             return {
-                "is_listed": listing_count > 0,
-                "listings": selected,
-                "min_price": random.randint(100, 5000) if selected else 0,
-                "score": min(100, listing_count * 30 + random.randint(0, 20)),
+                "resolves": False,
+                "status_code": None,
+                "likely_registered": False,
+                "note": "Domain does not resolve — may be available for registration.",
+            }
+        except Exception as exc:
+            return {
+                "resolves": None,
+                "status_code": None,
+                "likely_registered": None,
+                "note": f"Could not check domain availability: {exc}",
             }
 
-        listings: list[str] = []
-        prices: list[int] = []
-        marketplaces = [
-            ("GoDaddy Auctions", "https://auctions.godaddy.com/trpSearch/1"),
-            ("Afternic", "https://www.afternic.com/forsale/"),
-            ("Sedo", "https://sedo.com/search/details.php4?domain="),
-            ("NameCheap", "https://www.namecheap.com/domains/domain-broker/"),
-        ]
+    def _estimate_marketplace_score(self, domain_name: str, niche: str) -> float:
+        tld = domain_name.split(".")[-1] if "." in domain_name else ""
+        name_part = domain_name.replace(f".{tld}", "") if tld else domain_name
 
-        for name, base_url in marketplaces:
-            import httpx
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    resp = await client.get(f"{base_url}{domain_name}")
-                    if resp.status_code == 200:
-                        listings.append(name)
-                        if name == "Afternic" and "buynow" in resp.text.lower():
-                            import re
-                            m = re.search(r"\$([0-9,]+)", resp.text)
-                            if m:
-                                prices.append(int(m.group(1).replace(",", "")))
-            except Exception:
-                continue
+        tld_score = TLD_SCORES.get(tld, 30)
 
-        score = min(100, len(listings) * 30) if listings else 10
-        return {
-            "is_listed": len(listings) > 0,
-            "listings": listings,
-            "min_price": min(prices) if prices else 0,
-            "score": score,
-        }
+        length = len(name_part)
+        if length <= 4:
+            length_score = 100
+        elif length <= 8:
+            length_score = 80
+        elif length <= 12:
+            length_score = 60
+        else:
+            length_score = 30
 
-    def _find_buyer_leads(self, domain_name: str, niche: str) -> dict[str, Any]:
-        base_keywords = domain_name.replace(f".{domain_name.split('.')[-1]}", "").split("-")
+        word_count = len(re.split(r"[-_]", name_part))
+        word_score = max(0, 100 - (word_count - 1) * 25)
 
-        leads: list[dict[str, str]] = []
-        seen: set[str] = set()
+        has_numbers = any(c.isdigit() for c in name_part)
+        numbers_penalty = -15 if has_numbers else 0
 
-        niche_companies = LEADS_BY_NICHE.get(niche, [])
-        for company in niche_companies:
-            if company.lower() not in seen:
-                profile_type = random.choice(list(BUYER_PROFILES.keys()))
-                leads.append({
-                    "company": company,
-                    "type": profile_type,
-                    "profile": BUYER_PROFILES[profile_type],
-                    "reason": f"Active in {niche} niche — domain matches their industry",
-                })
-                seen.add(company.lower())
+        is_premium_tld = tld in ("com", "ai", "io")
+        premium_bonus = 10 if is_premium_tld else 0
 
-        for kw in base_keywords:
-            if kw and len(kw) > 2:
-                related = [c for c in niche_companies if kw[:3].lower() in c.lower()]
-                for company in related[:2]:
-                    if company.lower() not in seen:
-                        leads.append({
-                            "company": company,
-                            "type": "growth",
-                            "profile": BUYER_PROFILES["growth"],
-                            "reason": f"Keyword '{kw}' overlaps with their brand",
-                        })
-                        seen.add(company.lower())
+        raw = (tld_score * 0.3 + length_score * 0.3 + word_score * 0.3) + numbers_penalty + premium_bonus
+        return round(max(0.0, min(100.0, raw)), 2)
 
-        startup_names = [f"{kw} Technologies" for kw in base_keywords[:2] if kw and len(kw) > 2]
-        for name in startup_names:
-            if name.lower() not in seen:
-                leads.append({
-                    "company": name,
-                    "type": "startup",
-                    "profile": BUYER_PROFILES["startup"],
-                    "reason": "Natural brand fit for a new startup",
-                })
-                seen.add(name.lower())
+    def _estimate_buyer_leads(self, domain_name: str, niche: str) -> dict[str, Any]:
+        buyer_potential = NICHE_BUYER_POTENTIAL.get(niche, "low")
+        potential_map = {"very_high": 25, "high": 15, "medium": 8, "low": 3}
+        estimated_buyers = potential_map.get(buyer_potential, 3)
+
+        tld = domain_name.split(".")[-1] if "." in domain_name else ""
+        name_part = domain_name.replace(f".{tld}", "") if tld else domain_name
+
+        keywords = [w for w in re.split(r"[-_]", name_part) if len(w) > 2]
+
+        suggested_searches = []
+        for kw in keywords[:5]:
+            suggested_searches.append(f'"{kw}" startup founder OR CEO OR acquire')
 
         return {
-            "total_leads": len(leads),
-            "leads": leads[:10],
+            "total_leads": estimated_buyers,
+            "leads": [],
+            "buyer_potential": buyer_potential,
+            "estimated_buyers_in_niche": estimated_buyers,
+            "suggested_manual_searches": suggested_searches,
+            "note": "Automated lead scraping is unreliable. Run suggested searches manually on LinkedIn/Google.",
         }
 
     def _estimate_value(self, domain_name: str, niche: str) -> int:
@@ -200,11 +167,10 @@ class BrokerAnalyzer:
         base_value = 500 if tld == "com" else 100
         length_bonus = max(0, 1000 - length * 50)
         hyphen_penalty = max(0, hyphens * 100)
-        niche_multiplier = LEADS_BY_NICHE.get(niche, [])
-        niche_bonus = len(niche_multiplier) * 20
+        multiplier = NICHE_MULTIPLIERS.get(niche, 1.0)
 
-        value = base_value + length_bonus - hyphen_penalty + niche_bonus
-        return max(50, value)
+        value = (base_value + length_bonus - hyphen_penalty) * multiplier
+        return max(50, int(value))
 
     def _estimate_commission(self, estimated_value: int) -> dict[str, Any]:
         commission_rate = 0.15

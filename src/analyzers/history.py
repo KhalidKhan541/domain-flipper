@@ -15,7 +15,6 @@ GAMBLING_KEYWORDS = frozenset({"casino", "poker", "betting", "gambling"})
 PHARMA_KEYWORDS = frozenset({"pharmacy", "viagra", "cialis", "prescription"})
 
 WAYBACK_CDX_URL = "https://web.archive.org/cdx/search/cdx"
-SAFE_BROWSING_URL = "https://safebrowsing.googleapis.com/v4/threatMatches:find"
 
 DEFAULT_RESPONSE: dict[str, Any] = {
     "cleanliness_score": 50.0,
@@ -164,34 +163,28 @@ class HistoryAnalyzer:
     async def _check_safe_browsing(self, domain: str) -> bool:
         api_key = getattr(settings, "google_safe_browsing_key", None)
         if not api_key:
+            self.logger.info("No Safe Browsing API key configured — skipping check for %s", domain)
             return False
 
         target = domain if domain.startswith(("http://", "https://")) else f"https://{domain}"
         payload = {
             "client": {"clientId": "domain-flipper", "clientVersion": "1.0.0"},
             "threatInfo": {
-                "threatTypes": [
-                    "THREAT_TYPE_UNSPECIFIED",
-                    "MALWARE",
-                    "SOCIAL_ENGINEERING",
-                    "UNWANTED_SOFTWARE",
-                    "POTENTIALLY_HARMFUL_APPLICATION",
-                ],
+                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
                 "platformTypes": ["ANY_PLATFORM"],
                 "threatEntryTypes": ["URL"],
                 "threatEntries": [{"url": target}],
             },
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(f"{SAFE_BROWSING_URL}?key={api_key}", json=payload)
-            if resp.status_code == 200:
-                data = resp.json()
-                matches = data.get("matches", [])
-                return len(matches) > 0
-            self.logger.warning(
-                "Safe Browsing API returned %d for %s", resp.status_code, domain
+            resp = await client.post(
+                "https://safebrowsing.googleapis.com/v4/threatMatches:find",
+                params={"key": api_key},
+                json=payload,
             )
-            return False
+            resp.raise_for_status()
+            data = resp.json()
+            return bool(data.get("matches"))
 
     @staticmethod
     def _compute_cleanliness(

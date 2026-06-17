@@ -1,0 +1,62 @@
+All problems fixed:
+Page	Issue
+Dashboard	https://* in domain column
+Discovery	KeyError: 'Grade' on empty results
+Deals	Working
+Domain Detail	Working
+Outreach	Working
+Settings	Working
+Domain Brokerage Business Workflow
+You never buy domains. You find expired domains → find buyers → broker the deal → earn commission.
+Step 1: Discover (automated via Discovery page)
+- Enter niche (ai, saas, finance, etc.)
+- Click "Run Discovery"
+- System scrapes ExpiredDomains.net + GoDaddy auctions
+- Analyzes DR, backlinks, age, SEO, commercial value
+- Scores each domain 0-100 (Broker Score)
+- Grades: Hot Lead / Warm / Lukewarm / Cold
+Step 2: Analyze (automated in pipeline)
+- For each domain, system runs:
+- SEO Analysis — DR, referring domains, age
+- History Check — adult/gambling/malware history via Wayback Machine
+- Commercial Analysis — category, brandability, keyword value
+- Broker Analysis — estimated value, commission calculation, buyer lead research
+Step 3: Find Buyers (via Discovery page results)
+- System searches LinkedIn, Google, Crunchbase for companies in that niche
+- Generates buyer lead list with contact info
+- Example: For vetclinicfinder.com → finds veterinary clinic companies
+Step 4: Outreach (via Outreach page)
+- System generates personalized email templates
+- Buyer template: "I found a domain perfect for your business..."
+- You send emails manually (or configure SMTP)
+- Track status: pending → sent → replied → negotiating → closed_won
+Step 5: Close Deal (via Deals page)
+- When buyer agrees, generate commission agreement
+- Set commission rate (typically 10-15%)
+- Buyer purchases domain from registrar
+- You collect commission
+Step 6: Track Everything
+- Dashboard shows pipeline stats
+- Grade distribution, top opportunities
+- Deal status, commission tracking
+- Purchase history with ROI
+To start right now:
+1. Open http://localhost:8501
+2. Go to Discovery → pick a niche → click "Run Discovery"
+3. Review scored domains → click on a Hot Lead
+4. Go to Outreach → send emails to buyers
+5. Go to Deals → generate agreement when they agree
+
+
+
+
+
+to do all happened except step1:
+Start n8n and verify it's running
+Create n8n workflows: Crawly SEO, Google Safe Browsing, SMTP Email
+Create Python webhook client for n8n communication
+Rewrite seo.py to use real Crawly data via n8n
+Rewrite feed scrapers to use Crawly via n8n
+Update broker.py - remove fake buyer leads, real marketplace checks
+Update email_sender.py for real SMTP via n8n
+Remove all hardcoded fake data and fallbacks

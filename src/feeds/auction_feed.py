@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import random
 import re
-from typing import Optional
 
-import httpx
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 
-from src.config import settings
 from src.feeds.base import BaseFeed
 from src.utils import setup_logger
-
 
 DOMAIN_RE = re.compile(
     r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
 )
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
+]
+
+PAGE_TIMEOUT_MS = 60_000
 
 
 class AuctionFeed(BaseFeed):
@@ -26,105 +34,68 @@ class AuctionFeed(BaseFeed):
         "namebright": "https://www.namebright.com/expired",
     }
 
-    FALLBACK_POOL = [
-        "profitmagnet.com", "leadpagesystem.com", "smartcontractor.net",
-        "taskorbit.com", "bizplanhub.com", "growthpulse.io",
-        "datavaultsecurity.com", "brandboostmedia.net", "conversionlab.io",
-        "pricemonster.app", "stockalerts.pro", "tradevision.org",
-        "clinicsolutions.com", "patientportal.net", "medappointments.io",
-        "fitnesstrackerhub.com", "workoutplanner.net", "yogastudio.io",
-        "cryptoportfol.io", "blockchainverify.com", "tokenexchange.net",
-        "cloudinfra.net", "serverstack.io", "deployops.com",
-        "realestateleads.net", "propertywatch.io", "homerenovation.pro",
-        "travelbookingapp.com", "flightdeals.net", "hotelcompare.io",
-        "recipebox.app", "mealprep.pro", "fooddeliveryhub.com",
-        "autorepairshop.com", "carcaretips.net", "vehiclehistory.io",
-        "petcareclub.com", "animalhealth.net", "veterinarycare.io",
-        "musicproductionstudio.com", "soundcloudhub.net", "bandmanager.io",
-        "photographyportfolio.app", "videditpro.com", "mediacontent.net",
-        "assetprotection.net", "businesslending.net", "capitalfunding.net",
-        "creditrepairpro.net", "debtsettlement.net", "forextrading.net",
-        "insuranceservices.net", "investmentbanking.net", "retirementplanning.net",
-        "taxpreparation.net", "venturecapital.net", "wealthadvisory.net",
-        "apiplatform.io", "blockchainhub.io", "cloudcompute.io",
-        "devopsengine.io", "edgecomputing.io", "functionapp.io",
-        "gitops.io", "helmcharts.io", "istio.io", "kustomize.io",
-        "microservices.io", "nutanix.io", "openstack.io", "prometheus.io",
-        "terraform.io", "vaultproject.io", "webassembly.io",
-        "charitywatch.org", "communityfirst.org", "disasterrelief.org",
-        "environmentaldefense.org", "foodsecurity.org", "globalhealth.org",
-        "humanrights.org", "literacyprogram.org", "mentalhealth.org",
-        "oceanconservation.org", "publicpolicy.org", "renewableenergy.org",
-        "sustainableliving.org", "techforgood.org", "wateraid.org",
-        "brightideas.co", "cleverstartup.co", "digitalagency.co",
-        "ecommercesite.co", "founderstory.co", "growthmarketing.co",
-        "innovationhub.co", "jobsearch.co", "kickstarter.co",
-        "launchpad.co", "marketresearch.co", "nextbigthing.co",
-        "lovi.com", "benti.com", "caxa.com", "delfi.com", "enzu.com",
-        "firta.com", "golpa.com", "helvi.com", "intra.com", "jolte.com",
-        "kenza.com", "lumin.com", "moxie.com", "neryl.com", "optix.com",
-    ]
-
     def __init__(self) -> None:
         self.logger = setup_logger(self.__class__.__name__)
 
     async def fetch(self, max_domains: int = 200) -> list[dict]:
         collected: list[str] = []
 
-        fetchers = [
-            ("namecheap", self._fetch_namecheap),
-            ("domainpunch", self._fetch_domainpunch),
-            ("namebright", self._fetch_namebright),
-        ]
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                try:
+                    for name, url in self.SOURCES.items():
+                        if len(collected) >= max_domains:
+                            break
+                        try:
+                            html = await self._fetch_page(browser, url)
+                            if not html:
+                                self.logger.warning("Empty HTML from %s", name)
+                                continue
+                            domains = self._parse_page(html, name)
+                            if domains:
+                                self.logger.info("Fetched %d domains from %s", len(domains), name)
+                                collected.extend(domains)
+                            else:
+                                self.logger.warning("No domains parsed from %s", name)
+                        except Exception:
+                            self.logger.warning("Scrape failed for %s", name, exc_info=True)
+                finally:
+                    await browser.close()
+        except Exception:
+            self.logger.exception("Failed to launch Playwright browser")
 
-        for name, fetcher in fetchers:
-            try:
-                domains = await fetcher()
-                if domains:
-                    self.logger.info("Fetched %d domains from %s", len(domains), name)
-                    collected.extend(domains)
-                else:
-                    self.logger.warning("Empty result from %s", name)
-            except Exception:
-                self.logger.warning("Failed to fetch from %s", name, exc_info=True)
+        if not collected:
+            self.logger.warning("All sources returned empty — returning empty (no fallback)")
 
-            if len(collected) >= max_domains:
-                break
-
-        result_domains = collected[:max_domains]
-
-        if len(result_domains) < max_domains:
-            needed = max_domains - len(result_domains)
-            pool = random.sample(
-                self.FALLBACK_POOL,
-                min(needed, len(self.FALLBACK_POOL)),
-            )
-            result_domains.extend(pool)
-            self.logger.info(
-                "Supplemented with %d fallback domains (%d total)",
-                len(pool),
-                len(result_domains),
-            )
-
+        result_domains = list(dict.fromkeys(collected))[:max_domains]
         return [self._build_domain(d) for d in result_domains]
 
-    async def _fetch_namecheap(self) -> list[str]:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=30.0,
-        ) as client:
-            resp = await client.get(
-                self.SOURCES["namecheap"],
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/125.0.0.0 Safari/537.36"
-                    ),
-                },
-            )
-            resp.raise_for_status()
-            return self._parse_namecheap(resp.text)
+    async def _fetch_page(self, browser, url: str) -> str:
+        context = await browser.new_context(
+            user_agent=random.choice(USER_AGENTS),
+            viewport={"width": 1920, "height": 1080},
+            locale="en-US",
+        )
+        try:
+            page = await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
+            except Exception:
+                self.logger.debug("networkidle timed out for %s, proceeding", url)
+            return await page.content()
+        finally:
+            await context.close()
+
+    def _parse_page(self, html: str, source: str) -> list[str]:
+        if source == "namecheap":
+            return self._parse_namecheap(html)
+        if source == "domainpunch":
+            return self._parse_domainpunch(html)
+        if source == "namebright":
+            return self._parse_namebright(html)
+        return []
 
     def _parse_namecheap(self, html: str) -> list[str]:
         domains: list[str] = []
@@ -142,35 +113,13 @@ class AuctionFeed(BaseFeed):
 
         for el in soup.find_all("div", class_=re.compile(r"domain|name", re.I)):
             text = el.get_text(strip=True)
-            match = re.search(r"([a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]\.[a-zA-Z]{2,})", text)
+            match = re.search(
+                r"([a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]\.[a-zA-Z]{2,})", text
+            )
             if match and DOMAIN_RE.match(match.group(1)):
                 domains.append(match.group(1).lower())
 
-        seen: set[str] = set()
-        unique: list[str] = []
-        for d in domains:
-            if d not in seen:
-                seen.add(d)
-                unique.append(d)
-        return unique
-
-    async def _fetch_domainpunch(self) -> list[str]:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=30.0,
-        ) as client:
-            resp = await client.get(
-                self.SOURCES["domainpunch"],
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/125.0.0.0 Safari/537.36"
-                    ),
-                },
-            )
-            resp.raise_for_status()
-            return self._parse_domainpunch(resp.text)
+        return list(dict.fromkeys(domains))
 
     def _parse_domainpunch(self, html: str) -> list[str]:
         domains: list[str] = []
@@ -196,31 +145,7 @@ class AuctionFeed(BaseFeed):
                 if DOMAIN_RE.match(word):
                     domains.append(word.lower())
 
-        seen: set[str] = set()
-        unique: list[str] = []
-        for d in domains:
-            if d not in seen:
-                seen.add(d)
-                unique.append(d)
-        return unique
-
-    async def _fetch_namebright(self) -> list[str]:
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            timeout=30.0,
-        ) as client:
-            resp = await client.get(
-                self.SOURCES["namebright"],
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/125.0.0.0 Safari/537.36"
-                    ),
-                },
-            )
-            resp.raise_for_status()
-            return self._parse_namebright(resp.text)
+        return list(dict.fromkeys(domains))
 
     def _parse_namebright(self, html: str) -> list[str]:
         domains: list[str] = []
@@ -246,16 +171,7 @@ class AuctionFeed(BaseFeed):
                 if DOMAIN_RE.match(text2):
                     domains.append(text2.lower())
 
-        seen: set[str] = set()
-        unique: list[str] = []
-        for d in domains:
-            if d not in seen:
-                seen.add(d)
-                unique.append(d)
-        return unique
-
-    def _fallback_list(self) -> list[str]:
-        return list(self.FALLBACK_POOL)
+        return list(dict.fromkeys(domains))
 
     def _build_domain(self, domain_name: str) -> dict:
         tld = domain_name.split(".")[-1] if "." in domain_name else ""

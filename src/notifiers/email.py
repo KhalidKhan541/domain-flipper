@@ -1,6 +1,6 @@
-import asyncio
 import logging
 import mimetypes
+import smtplib
 from datetime import datetime, timezone
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -95,6 +95,22 @@ class EmailNotifier(BaseNotifier):
             self.smtp_host and self.smtp_user and self.smtp_pass and self.email_to
         )
 
+    def _send_via_smtp(self, to: str, subject: str, body: str, html: bool = False) -> None:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = self.email_from or self.smtp_user
+        msg["To"] = to
+        msg["Subject"] = subject
+
+        subtype = "html" if html else "plain"
+        msg.attach(MIMEText(body, subtype, "utf-8"))
+
+        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(self.smtp_user, self.smtp_pass)
+            server.sendmail(self.smtp_user, to, msg.as_string())
+
     async def send_report(self, report_text: str, domains: list[dict]) -> bool:
         if not self.enabled:
             self.logger.warning("Email notifier is disabled")
@@ -104,90 +120,24 @@ class EmailNotifier(BaseNotifier):
         subject = f"Daily Broker Report - {date_str}"
 
         html_body = _build_html_table(domains)
-        text_body = f"Daily Broker Report - {date_str}\n\nFound {len(domains)} broker opportunities."
 
-        msg = MIMEMultipart("mixed")
-        msg["Subject"] = subject
-        msg["From"] = self.email_from
-        msg["To"] = self.email_to
-
-        alt = MIMEMultipart("alternative")
-        alt.attach(MIMEText(text_body, "plain", "utf-8"))
-        alt.attach(MIMEText(html_body, "html", "utf-8"))
-        msg.attach(alt)
-
-        if REPORT_DIR.is_dir():
-            for fpath in sorted(REPORT_DIR.iterdir()):
-                if fpath.is_file() and not fpath.name.startswith("."):
-                    _attach_file(msg, fpath, self.logger)
-
-        return await self._send(msg)
+        try:
+            self._send_via_smtp(to=self.email_to, subject=subject, body=html_body, html=True)
+            self.logger.info("Daily broker report sent via Gmail SMTP")
+            return True
+        except Exception as e:
+            self.logger.error("Failed to send report: %s", e)
+            return False
 
     async def send_alert(self, message: str) -> bool:
         if not self.enabled:
             self.logger.warning("Email notifier is disabled")
             return False
 
-        msg = MIMEText(message, "plain", "utf-8")
-        msg["Subject"] = "Domain Broker Alert"
-        msg["From"] = self.email_from
-        msg["To"] = self.email_to
-
-        return await self._send(msg)
-
-    async def _send(self, msg) -> bool:
         try:
-            import aiosmtplib
-
-            await aiosmtplib.send(
-                msg,
-                hostname=self.smtp_host,
-                port=self.smtp_port,
-                username=self.smtp_user,
-                password=self.smtp_pass,
-                use_tls=self.smtp_port == 465,
-                start_tls=self.smtp_port == 587,
-            )
-            self.logger.info("Email sent successfully via aiosmtplib")
+            self._send_via_smtp(to=self.email_to, subject="Domain Broker Alert", body=message)
+            self.logger.info("Alert sent via Gmail SMTP")
             return True
-
-        except ImportError:
-            self.logger.info("aiosmtplib not available, falling back to smtplib")
-            return await self._send_sync_fallback(msg)
-
         except Exception as e:
-            self.logger.error(f"aiosmtplib error: {e}")
-            return await self._send_sync_fallback(msg)
-
-    async def _send_sync_fallback(self, msg) -> bool:
-        loop = asyncio.get_event_loop()
-        try:
-            await loop.run_in_executor(None, self._smtp_send, msg)
-            self.logger.info("Email sent successfully via smtplib")
-            return True
-        except ConnectionError as e:
-            self.logger.error(f"SMTP connection/auth error: {e}")
+            self.logger.error("Failed to send alert: %s", e)
             return False
-        except Exception as e:
-            self.logger.error(f"smtplib error: {e}")
-            return False
-
-    def _smtp_send(self, msg) -> None:
-        import smtplib
-        import ssl
-
-        if self.smtp_port == 465:
-            with smtplib.SMTP_SSL(
-                self.smtp_host, self.smtp_port, timeout=30,
-                context=ssl.create_default_context(),
-            ) as server:
-                if self.smtp_user and self.smtp_pass:
-                    server.login(self.smtp_user, self.smtp_pass)
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30) as server:
-                if self.smtp_port == 587:
-                    server.starttls(context=ssl.create_default_context())
-                if self.smtp_user and self.smtp_pass:
-                    server.login(self.smtp_user, self.smtp_pass)
-                server.send_message(msg)

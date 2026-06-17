@@ -149,11 +149,25 @@ class DomainSourceCoordinator:
         seen: set[str] = set()
         merged: list[dict] = []
 
+        by_source: dict[str, list[dict]] = {}
         for d in feed_domains:
-            name = d.get("domain_name", "")
-            if name and name not in seen:
-                seen.add(name)
-                merged.append(d)
+            source = d.get("source", "unknown")
+            by_source.setdefault(source, []).append(d)
+
+        sources = list(by_source.keys())
+        idx = {s: 0 for s in sources}
+        any_remaining = True
+        while any_remaining:
+            any_remaining = False
+            for s in sources:
+                if idx[s] < len(by_source[s]):
+                    d = by_source[s][idx[s]]
+                    idx[s] += 1
+                    name = d.get("domain_name", "")
+                    if name and name not in seen:
+                        seen.add(name)
+                        merged.append(d)
+                    any_remaining = True
 
         for d in generated:
             name = d.get("domain_name", "")

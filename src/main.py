@@ -124,11 +124,12 @@ class DomainBroker:
                 return
 
             self.logger.info("Step 3/5: Running outbound pipeline (online mode)…")
+            original_offline = settings.offline_mode
             settings.offline_mode = False
             try:
                 outbound_results = await self.run_outbound(analyzed)
             finally:
-                settings.offline_mode = True
+                settings.offline_mode = original_offline
 
             self.logger.info("Step 4/5: Generating reports…")
             await self.generate_reports(analyzed)

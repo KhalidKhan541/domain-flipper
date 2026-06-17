@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
+from sqlite3 import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,12 @@ CREATE TABLE IF NOT EXISTS domains (
     commercial_score REAL,
     cleanliness_score REAL,
     reason TEXT,
+    broker_score REAL,
+    broker_grade TEXT,
+    estimated_value INTEGER,
+    commission_amount INTEGER,
+    buyer_lead_count INTEGER,
+    marketplace_listings TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 )
 """
@@ -75,6 +82,21 @@ class Database:
         conn = await self._connect()
         for ddl in (_DOMAINS_TABLE, _PURCHASES_TABLE, _SCRAPE_LOGS_TABLE):
             await conn.execute(ddl)
+
+        _migration_columns = [
+            ("broker_score", "REAL"),
+            ("broker_grade", "TEXT"),
+            ("estimated_value", "INTEGER"),
+            ("commission_amount", "INTEGER"),
+            ("buyer_lead_count", "INTEGER"),
+            ("marketplace_listings", "TEXT"),
+        ]
+        for col_name, col_type in _migration_columns:
+            try:
+                await conn.execute(f"ALTER TABLE domains ADD COLUMN {col_name} {col_type}")
+            except OperationalError:
+                pass
+
         await conn.commit()
         logger.info("Database initialised at %s", self.db_path)
 
@@ -88,8 +110,10 @@ class Database:
             (domain_name, price, auction_end_date, registrar, tld, source,
              dr, referring_domains, domain_age, category, final_score,
              opportunity_grade, trust_score, seo_score, commercial_score,
-             cleanliness_score, reason)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+             cleanliness_score, reason,
+             broker_score, broker_grade, estimated_value,
+             commission_amount, buyer_lead_count, marketplace_listings)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
         await conn.execute(sql, _domain_values(domain))
         await conn.commit()
 
@@ -99,8 +123,10 @@ class Database:
             (domain_name, price, auction_end_date, registrar, tld, source,
              dr, referring_domains, domain_age, category, final_score,
              opportunity_grade, trust_score, seo_score, commercial_score,
-             cleanliness_score, reason)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
+             cleanliness_score, reason,
+             broker_score, broker_grade, estimated_value,
+             commission_amount, buyer_lead_count, marketplace_listings)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"""
         await conn.executemany(sql, [_domain_values(d) for d in domains])
         await conn.commit()
         logger.info("Saved %d domains in batch", len(domains))
@@ -203,4 +229,10 @@ def _domain_values(d: dict[str, Any]) -> tuple[Any, ...]:
         d.get("commercial_score"),
         d.get("cleanliness_score"),
         d.get("reason"),
+        d.get("broker_score"),
+        d.get("broker_grade"),
+        d.get("estimated_value"),
+        d.get("commission_amount"),
+        d.get("buyer_lead_count"),
+        d.get("marketplace_listings"),
     )

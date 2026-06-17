@@ -7,76 +7,6 @@ import httpx
 from src.config import settings
 from src.utils import setup_logger
 
-MOCK_OWNER_DATA: dict[str, dict[str, str]] = {
-    "google.com": {
-        "registrant_name": "Google LLC",
-        "registrant_org": "Google LLC",
-        "registrant_email": "domsreg@google.com",
-        "registrar": "MarkMonitor, Inc.",
-    },
-    "openai.com": {
-        "registrant_name": "OpenAI OpCo, LLC",
-        "registrant_org": "OpenAI OpCo, LLC",
-        "registrant_email": "domain-admin@openai.com",
-        "registrar": "MarkMonitor, Inc.",
-    },
-    "stripe.com": {
-        "registrant_name": "Stripe, Inc.",
-        "registrant_org": "Stripe, Inc.",
-        "registrant_email": "domains@stripe.com",
-        "registrar": "MarkMonitor, Inc.",
-    },
-    "cloudflare.com": {
-        "registrant_name": "Cloudflare, Inc.",
-        "registrant_org": "Cloudflare, Inc.",
-        "registrant_email": "domains@cloudflare.com",
-        "registrar": "MarkMonitor, Inc.",
-    },
-    "anthropic.com": {
-        "registrant_name": "Anthropic PBC",
-        "registrant_org": "Anthropic PBC",
-        "registrant_email": "domains@anthropic.com",
-        "registrar": "NameCheap, Inc.",
-    },
-    "perplexity.ai": {
-        "registrant_name": "Perplexity AI, Inc.",
-        "registrant_org": "Perplexity AI, Inc.",
-        "registrant_email": "domains@perplexity.ai",
-        "registrar": "NameCheap, Inc.",
-    },
-    "notion.so": {
-        "registrant_name": "Notion Labs, Inc.",
-        "registrant_org": "Notion Labs, Inc.",
-        "registrant_email": "domains@makenotion.com",
-        "registrar": "NameCheap, Inc.",
-    },
-    "vercel.com": {
-        "registrant_name": "Vercel Inc.",
-        "registrant_org": "Vercel Inc.",
-        "registrant_email": "domains@vercel.com",
-        "registrar": "NameCheap, Inc.",
-    },
-    "linear.app": {
-        "registrant_name": "Linear Orbit, Inc.",
-        "registrant_org": "Linear Orbit, Inc.",
-        "registrant_email": "domains@linear.app",
-        "registrar": "NameCheap, Inc.",
-    },
-    "supabase.com": {
-        "registrant_name": "Supabase, Inc.",
-        "registrant_org": "Supabase, Inc.",
-        "registrant_email": "domains@supabase.com",
-        "registrar": "NameCheap, Inc.",
-    },
-}
-
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36"
-)
-
-
 class OwnerExtractor:
     RDAP_BASE = {
         "com": "https://rdap.verisign.com/com/v1/domain/",
@@ -104,15 +34,14 @@ class OwnerExtractor:
         domain = domain.lower().strip()
 
         if settings.offline_mode:
-            self.logger.info("Offline mode — returning mock owner data for %s", domain)
-            mock = MOCK_OWNER_DATA.get(domain, MOCK_OWNER_DATA.get("google.com"))
+            self.logger.warning("Offline mode — cannot extract owner for %s", domain)
             return {
                 "domain": domain,
-                "registrant_name": mock["registrant_name"],
-                "registrant_org": mock["registrant_org"],
-                "registrant_email": mock["registrant_email"],
-                "registrar": mock["registrar"],
-                "status": "found",
+                "registrant_name": None,
+                "registrant_org": None,
+                "registrant_email": None,
+                "registrar": None,
+                "status": "offline",
             }
 
         tld = domain.rsplit(".", 1)[-1] if "." in domain else ""

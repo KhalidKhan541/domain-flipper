@@ -14,18 +14,21 @@ class Settings(BaseSettings):
     preferred_max: int = 50
     exceptional_max: int = 300
 
+    # n8n
+    n8n_url: Optional[str] = None
+
     # Notifications
     telegram_bot_token: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     discord_webhook_url: Optional[str] = None
-    smtp_host: Optional[str] = None
+    smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
-    smtp_user: Optional[str] = None
-    smtp_pass: Optional[str] = None
+    smtp_user: str = ""
+    smtp_pass: str = ""
     email_from: Optional[str] = None
     email_to: Optional[str] = None
 
-    # API keys
+    # API keys (all optional — zero-budget mode uses no paid APIs)
     catchdoms_api_key: Optional[str] = None
     crawly_api_key: Optional[str] = None
     ahrefs_api_key: Optional[str] = None

@@ -18,13 +18,8 @@ from src.feeds.auction_feed import AuctionFeed
 from src.feeds.expireddomains_feed import ExpiredDomainsFeed
 from src.generators.keyword_generator import KeywordGenerator
 from src.generators.thesaurus_generator import ThesaurusGenerator
+from src.constants import NICHES
 from src.utils import setup_logger
-
-
-NICHES = [
-    "ai", "saas", "finance", "health", "ecommerce",
-    "education", "cybersecurity", "realestate", "productivity", "legal",
-]
 
 
 class BrokerCoordinator:
