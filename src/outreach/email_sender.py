@@ -184,6 +184,8 @@ class EmailSender:
         to_email: str,
         domain: str,
         contact_name: str,
+        company_name: str = "",
+        attempt: int = 1,
     ) -> bool:
         """Send follow-up email for a domain opportunity."""
         if not self.enabled:
@@ -194,17 +196,17 @@ class EmailSender:
             self.logger.warning("Skipping followup — invalid email domain: %s", to_email)
             return False
 
-        subject = f"Following up: {domain}"
-        body = (
-            f"Hi {contact_name},\n\n"
-            f"I wanted to follow up on my previous email about {domain}.\n\n"
-            f"This premium domain is still available and could be a great fit for your business. "
-            f"Would you be open to a quick chat about it?\n\n"
-            f"Best regards,\n"
-            f"{settings.smtp_user}"
+        template = self.template_gen.follow_up(
+            previous_subject=f"Premium {domain}",
+            domain=domain,
+            buyer_company=company_name or "your company",
+            contact_name=contact_name,
+            attempt=attempt,
         )
+        subject = template["subject"]
+        body = template["body"]
 
-        self.logger.info("Sending followup for %s to %s", domain, to_email)
+        self.logger.info("Sending followup (attempt %d) for %s to %s", attempt, domain, to_email)
         success = await self.send_email(to_email=to_email, subject=subject, body=body)
         if success:
             self.logger.info("Followup sent: %s -> %s", domain, to_email)
