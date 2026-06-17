@@ -9,6 +9,7 @@ from typing import Optional
 
 from src.config import settings
 from src.utils.logger import setup_logger
+from src.outreach.template_generator import TemplateGenerator
 
 
 class EmailSender:
@@ -20,6 +21,7 @@ class EmailSender:
             settings.smtp_host and settings.smtp_user and settings.smtp_pass
         )
         self._dns_cache: dict[str, bool] = {}
+        self.template_gen = TemplateGenerator()
 
     def _domain_exists(self, domain: str) -> bool:
         """Check if a domain has DNS A/AAAA records (avoids bounces from fake domains)."""
@@ -139,4 +141,73 @@ class EmailSender:
             self.logger.warning(
                 "Outreach failed: %s - %s (%s)", domain, lead_type, to_email
             )
+        return success
+
+    async def send_buyer_outreach(
+        self,
+        to_email: str,
+        domain: str,
+        company_name: str,
+        contact_name: str,
+        estimated_value: int,
+        niche: str = "general",
+    ) -> bool:
+        """Send personalized cold outreach email to potential domain buyer."""
+        if not self.enabled:
+            self.logger.warning("EmailSender is disabled")
+            return False
+
+        if not self._validate_email(to_email):
+            self.logger.warning("Skipping buyer outreach — invalid email domain: %s", to_email)
+            return False
+
+        template = self.template_gen.buyer_outreach(
+            domain=domain,
+            company_name=company_name,
+            contact_name=contact_name,
+            estimated_value=estimated_value,
+            niche=niche,
+        )
+        subject = template["subject"]
+        body = template["body"]
+
+        self.logger.info("Sending buyer outreach for %s to %s (%s)", domain, to_email, company_name)
+        success = await self.send_email(to_email=to_email, subject=subject, body=body)
+        if success:
+            self.logger.info("Buyer outreach sent: %s -> %s", domain, to_email)
+        else:
+            self.logger.warning("Buyer outreach failed: %s -> %s", domain, to_email)
+        return success
+
+    async def send_followup(
+        self,
+        to_email: str,
+        domain: str,
+        contact_name: str,
+    ) -> bool:
+        """Send follow-up email for a domain opportunity."""
+        if not self.enabled:
+            self.logger.warning("EmailSender is disabled")
+            return False
+
+        if not self._validate_email(to_email):
+            self.logger.warning("Skipping followup — invalid email domain: %s", to_email)
+            return False
+
+        subject = f"Following up: {domain}"
+        body = (
+            f"Hi {contact_name},\n\n"
+            f"I wanted to follow up on my previous email about {domain}.\n\n"
+            f"This premium domain is still available and could be a great fit for your business. "
+            f"Would you be open to a quick chat about it?\n\n"
+            f"Best regards,\n"
+            f"{settings.smtp_user}"
+        )
+
+        self.logger.info("Sending followup for %s to %s", domain, to_email)
+        success = await self.send_email(to_email=to_email, subject=subject, body=body)
+        if success:
+            self.logger.info("Followup sent: %s -> %s", domain, to_email)
+        else:
+            self.logger.warning("Followup failed: %s -> %s", domain, to_email)
         return success

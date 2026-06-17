@@ -4,6 +4,7 @@ import asyncio
 import re
 from typing import Any
 
+from src.outreach.buyer_discovery import BuyerDiscovery
 from src.utils import setup_logger
 
 NICHE_MULTIPLIERS: dict[str, float] = {
@@ -48,13 +49,32 @@ TLD_SCORES: dict[str, float] = {
 class BrokerAnalyzer:
     def __init__(self) -> None:
         self.logger = setup_logger("BrokerAnalyzer")
+        self.buyer_discovery = BuyerDiscovery()
 
     async def analyze(self, domain_name: str, niche: str = "general") -> dict[str, Any]:
         self.logger.info("Broker analysis for %s (niche: %s)", domain_name, niche)
 
         availability = await self._check_domain_availability(domain_name)
         marketplace_score = self._estimate_marketplace_score(domain_name, niche)
-        leads = self._estimate_buyer_leads(domain_name, niche)
+
+        try:
+            leads = await self.buyer_discovery.discover_buyers(domain_name, niche)
+            self.logger.info(
+                "Buyer discovery found %d leads for %s",
+                leads.get("total_leads", 0),
+                domain_name,
+            )
+        except Exception as exc:
+            self.logger.warning("Buyer discovery failed for %s: %s", domain_name, exc)
+            leads = {
+                "total_leads": 0,
+                "leads": [],
+                "buyer_potential": "unknown",
+                "estimated_buyers_in_niche": 0,
+                "source": "fallback",
+                "error": str(exc),
+            }
+
         estimated_value = self._estimate_value(domain_name, niche)
         commission = self._estimate_commission(estimated_value)
         buyer_count = leads.get("total_leads", 0)
@@ -75,8 +95,8 @@ class BrokerAnalyzer:
             "commission": commission,
             "broker_score": broker_score,
             "broker_grade": self._assign_broker_grade(broker_score),
-            "data_source": "heuristic_only",
-            "note": "No live marketplace scraping. All values are heuristic estimates.",
+            "data_source": leads.get("source", "buyer_discovery"),
+            "note": "Buyer leads sourced from live discovery module.",
         }
 
     async def _check_domain_availability(self, domain_name: str) -> dict[str, Any]:
@@ -134,29 +154,6 @@ class BrokerAnalyzer:
 
         raw = (tld_score * 0.3 + length_score * 0.3 + word_score * 0.3) + numbers_penalty + premium_bonus
         return round(max(0.0, min(100.0, raw)), 2)
-
-    def _estimate_buyer_leads(self, domain_name: str, niche: str) -> dict[str, Any]:
-        buyer_potential = NICHE_BUYER_POTENTIAL.get(niche, "low")
-        potential_map = {"very_high": 25, "high": 15, "medium": 8, "low": 3}
-        estimated_buyers = potential_map.get(buyer_potential, 3)
-
-        tld = domain_name.split(".")[-1] if "." in domain_name else ""
-        name_part = domain_name.replace(f".{tld}", "") if tld else domain_name
-
-        keywords = [w for w in re.split(r"[-_]", name_part) if len(w) > 2]
-
-        suggested_searches = []
-        for kw in keywords[:5]:
-            suggested_searches.append(f'"{kw}" startup founder OR CEO OR acquire')
-
-        return {
-            "total_leads": estimated_buyers,
-            "leads": [],
-            "buyer_potential": buyer_potential,
-            "estimated_buyers_in_niche": estimated_buyers,
-            "suggested_manual_searches": suggested_searches,
-            "note": "Automated lead scraping is unreliable. Run suggested searches manually on LinkedIn/Google.",
-        }
 
     def _estimate_value(self, domain_name: str, niche: str) -> int:
         tld = domain_name.split(".")[-1] if "." in domain_name else "com"

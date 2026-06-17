@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     ahrefs_api_key: Optional[str] = None
     moz_api_key: Optional[str] = None
     google_safe_browsing_key: Optional[str] = None
+    apollo_api_key: Optional[str] = None
+    tomba_api_key: Optional[str] = None
+    twitter_bearer_token: Optional[str] = None
 
     # Outbound outreach
     max_outbound_per_run: int = 20
