@@ -199,6 +199,7 @@ class DiscordNotifier(BaseNotifier):
         domains_discovered = stats.get("domains_discovered", 0)
         total_leads = stats.get("total_leads", 0)
         emails_sent = stats.get("emails_sent", 0)
+        credit_status = stats.get("credit_status")
         top_opportunity = stats.get("top_opportunity", "N/A")
 
         fields = [
@@ -215,6 +216,14 @@ class DiscordNotifier(BaseNotifier):
             {
                 "name": "Emails Sent",
                 "value": str(emails_sent),
+                "inline": True,
+            },
+            {
+                "name": "API Credits (Monthly)",
+                "value": (
+                    f"Apollo: {credit_status['apollo_used']}/{credit_status['apollo_limit']}"
+                    f" | Tomba: {credit_status['tomba_used']}/{credit_status['tomba_limit']}"
+                ) if credit_status else "N/A",
                 "inline": True,
             },
             {

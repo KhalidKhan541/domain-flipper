@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from src.integrations.apollo_client import ApolloClient
@@ -10,6 +13,15 @@ from src.integrations.social_search import SocialSearcher
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+CREDIT_FILE = Path("data/credit_usage.json")
+
+# Free tier monthly limits
+APOLLO_MONTHLY_LIMIT = 100
+TOMBA_MONTHLY_LIMIT = 50
+
+# Only use paid credits for domains with score >= this threshold
+CREDIT_THRESHOLD = 70
 
 NICHE_SYNONYMS: dict[str, list[str]] = {
     "ai": ["artificial intelligence", "machine learning", "deep learning", "neural network", "nlp"],
@@ -25,6 +37,76 @@ NICHE_SYNONYMS: dict[str, list[str]] = {
 }
 
 
+class CreditTracker:
+    """Tracks monthly API credit usage to stay within free tier limits."""
+
+    def __init__(self) -> None:
+        self._data = self._load()
+
+    def _load(self) -> dict[str, Any]:
+        if CREDIT_FILE.exists():
+            try:
+                data = json.loads(CREDIT_FILE.read_text())
+                # Reset if month changed
+                if data.get("month") != self._current_month():
+                    return self._fresh_data()
+                return data
+            except (json.JSONDecodeError, KeyError):
+                return self._fresh_data()
+        return self._fresh_data()
+
+    def _fresh_data(self) -> dict[str, Any]:
+        return {
+            "month": self._current_month(),
+            "apollo_used": 0,
+            "tomba_used": 0,
+        }
+
+    def _current_month(self) -> str:
+        return datetime.now(timezone.utc).strftime("%Y-%m")
+
+    def save(self) -> None:
+        CREDIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CREDIT_FILE.write_text(json.dumps(self._data, indent=2))
+
+    def apollo_available(self) -> int:
+        return max(0, APOLLO_MONTHLY_LIMIT - self._data.get("apollo_used", 0))
+
+    def tomba_available(self) -> int:
+        return max(0, TOMBA_MONTHLY_LIMIT - self._data.get("tomba_used", 0))
+
+    def use_apollo(self, count: int = 1) -> int:
+        """Use Apollo credits. Returns actual credits used (may be less than requested)."""
+        available = self.apollo_available()
+        used = min(count, available)
+        self._data["apollo_used"] = self._data.get("apollo_used", 0) + used
+        self.save()
+        if used < count:
+            logger.warning("Apollo credits exhausted: requested %d, used %d", count, used)
+        return used
+
+    def use_tomba(self, count: int = 1) -> int:
+        """Use Tomba credits. Returns actual credits used (may be less than requested)."""
+        available = self.tomba_available()
+        used = min(count, available)
+        self._data["tomba_used"] = self._data.get("tomba_used", 0) + used
+        self.save()
+        if used < count:
+            logger.warning("Tomba credits exhausted: requested %d, used %d", count, used)
+        return used
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "month": self._current_month(),
+            "apollo_used": self._data.get("apollo_used", 0),
+            "apollo_limit": APOLLO_MONTHLY_LIMIT,
+            "apollo_available": self.apollo_available(),
+            "tomba_used": self._data.get("tomba_used", 0),
+            "tomba_limit": TOMBA_MONTHLY_LIMIT,
+            "tomba_available": self.tomba_available(),
+        }
+
+
 class BuyerDiscovery:
     def __init__(self) -> None:
         self.apollo = ApolloClient(api_key=getattr(settings, "apollo_api_key", None))
@@ -32,9 +114,25 @@ class BuyerDiscovery:
         self.social = SocialSearcher(
             twitter_bearer_token=getattr(settings, "twitter_bearer_token", None),
         )
+        self.credits = CreditTracker()
 
-    async def discover_buyers(self, domain_name: str, niche: str) -> dict[str, Any]:
-        logger.info("Starting buyer discovery for %s (niche: %s)", domain_name, niche)
+    async def discover_buyers(
+        self,
+        domain_name: str,
+        niche: str,
+        broker_score: float = 0.0,
+    ) -> dict[str, Any]:
+        """
+        Find potential buyers for a domain.
+
+        Strategy based on broker_score:
+        - Score >= 70: Use Apollo + Tomba (paid credits) for high-quality leads
+        - Score < 70: Use only free social search (save credits for best opportunities)
+        """
+        logger.info(
+            "Starting buyer discovery for %s (niche: %s, score: %.1f)",
+            domain_name, niche, broker_score,
+        )
 
         keywords = self._extract_keywords(domain_name, niche)
         logger.info("Extracted keywords: %s", keywords)
@@ -43,54 +141,34 @@ class BuyerDiscovery:
         contacts: list[dict[str, Any]] = []
         social_signals: dict[str, Any] = {"reddit": [], "twitter": [], "hackernews": [], "total": 0}
         social_intent_signals: list[str] = []
+        credits_used = {"apollo": 0, "tomba": 0}
+        source = "social"
 
-        # Step 2: Find companies via Apollo
-        try:
-            companies = await self.apollo.search_companies(
-                keywords=keywords,
-                min_employees=10,
-                max_employees=500,
-                limit=25,
+        # Decide strategy based on score
+        use_paid_apis = broker_score >= CREDIT_THRESHOLD and self._has_api_keys()
+
+        if use_paid_apis:
+            logger.info(
+                "Domain %s scored %.1f (>= %d) — using Apollo + Tomba credits",
+                domain_name, broker_score, CREDIT_THRESHOLD,
             )
-            logger.info("Found %d companies from Apollo", len(companies))
-        except Exception as exc:
-            logger.error("Apollo company search failed: %s — continuing with other sources", exc)
+            source = "apollo+tomba+social"
 
-        # Step 3: Find contacts via Tomba
-        if companies:
-            for company in companies[:15]:
-                company_domain = company.get("company_domain", "")
-                if not company_domain:
-                    continue
+            # Step 2: Find companies via Apollo (use 5 credits)
+            companies = await self._search_companies(keywords, credits_used)
 
-                try:
-                    emails = await self.tomba.find_emails(domain=company_domain, limit=5)
-                    for entry in emails:
-                        position = entry.get("position", "").upper()
-                        if any(
-                            title in position
-                            for title in ("CEO", "CTO", "CFO", "COO", "FOUNDER", "PRESIDENT", "VP", "DIRECTOR")
-                        ):
-                            verification = await self.tomba.verify_email(entry.get("email", ""))
-                            contacts.append({
-                                "company": company.get("company", ""),
-                                "company_domain": company_domain,
-                                "contact_name": entry.get("first_name", "") + " " + entry.get("last_name", ""),
-                                "contact_title": entry.get("position", ""),
-                                "email": entry.get("email", ""),
-                                "email_valid": verification.get("valid", False),
-                                "email_confidence": entry.get("confidence", 0),
-                                "employee_count": company.get("employee_count", 0),
-                                "industry": company.get("industry", ""),
-                                "location": company.get("location", ""),
-                                "source": "apollo+tomba",
-                            })
-                except Exception as exc:
-                    logger.error("Tomba contact search failed for %s: %s", company_domain, exc)
+            # Step 3: Find contacts via Tomba (use up to 15 credits)
+            contacts = await self._search_contacts(companies, credits_used)
 
-            logger.info("Found %d contacts from Tomba", len(contacts))
+        else:
+            reason = "low score" if broker_score < CREDIT_THRESHOLD else "no API keys"
+            logger.info(
+                "Domain %s — using free social search only (%s)",
+                domain_name, reason,
+            )
+            source = "social"
 
-        # Step 4: Find social signals
+        # Step 4: Find social signals (always free)
         try:
             social_signals = await self.social.search_all(domain_name, niche, keywords)
             social_intent_signals = self.social.extract_intent_signals(social_signals)
@@ -113,14 +191,110 @@ class BuyerDiscovery:
             "total_leads": len(top_leads),
             "leads": top_leads,
             "social_signals": social_signals,
+            "source": source,
+            "credits_used": credits_used,
+            "credit_status": self.credits.status(),
         }
 
         logger.info(
-            "Buyer discovery complete for %s — %d leads found",
-            domain_name,
-            len(top_leads),
+            "Buyer discovery complete for %s — %d leads found (credits: apollo=%d, tomba=%d)",
+            domain_name, len(top_leads),
+            credits_used["apollo"], credits_used["tomba"],
         )
         return result
+
+    def _has_api_keys(self) -> bool:
+        """Check if we have API keys configured."""
+        has_apollo = bool(getattr(settings, "apollo_api_key", None))
+        has_tomba = bool(getattr(settings, "tomba_api_key", None))
+        return has_apollo or has_tomba
+
+    async def _search_companies(
+        self, keywords: list[str], credits_used: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Search companies via Apollo, respecting credit limits."""
+        available = self.credits.apollo_available()
+        if available <= 0:
+            logger.warning("Apollo credits exhausted — skipping company search")
+            return []
+
+        try:
+            companies = await self.apollo.search_companies(
+                keywords=keywords,
+                min_employees=10,
+                max_employees=500,
+                limit=min(25, available),
+            )
+            used = self.credits.use_apollo(len(companies))
+            credits_used["apollo"] = used
+            logger.info("Found %d companies from Apollo (used %d credits)", len(companies), used)
+            return companies
+        except Exception as exc:
+            logger.error("Apollo company search failed: %s", exc)
+            return []
+
+    async def _search_contacts(
+        self, companies: list[dict[str, Any]], credits_used: dict[str, int],
+    ) -> list[dict[str, Any]]:
+        """Find contacts via Tomba, respecting credit limits."""
+        contacts: list[dict[str, Any]] = []
+        available = self.credits.tomba_available()
+
+        if available <= 0:
+            logger.warning("Tomba credits exhausted — skipping contact search")
+            return contacts
+
+        # Process companies until we run out of credits
+        credits_remaining = available
+        for company in companies:
+            if credits_remaining <= 0:
+                break
+
+            company_domain = company.get("company_domain", "")
+            if not company_domain:
+                continue
+
+            try:
+                # Use 1 credit per email finder call
+                emails = await self.tomba.find_emails(domain=company_domain, limit=3)
+                if emails:
+                    used = self.credits.use_tomba(1)
+                    credits_used["tomba"] += used
+                    credits_remaining -= used
+
+                for entry in emails:
+                    position = entry.get("position", "").upper()
+                    if any(
+                        title in position
+                        for title in ("CEO", "CTO", "CFO", "COO", "FOUNDER", "PRESIDENT", "VP", "DIRECTOR")
+                    ):
+                        # Verify email (1 credit)
+                        if credits_remaining > 0:
+                            verification = await self.tomba.verify_email(entry.get("email", ""))
+                            used = self.credits.use_tomba(1)
+                            credits_used["tomba"] += used
+                            credits_remaining -= used
+                        else:
+                            verification = {"valid": False}
+
+                        contacts.append({
+                            "company": company.get("company", ""),
+                            "company_domain": company_domain,
+                            "contact_name": entry.get("first_name", "") + " " + entry.get("last_name", ""),
+                            "contact_title": entry.get("position", ""),
+                            "email": entry.get("email", ""),
+                            "email_valid": verification.get("valid", False),
+                            "email_confidence": entry.get("confidence", 0),
+                            "employee_count": company.get("employee_count", 0),
+                            "industry": company.get("industry", ""),
+                            "location": company.get("location", ""),
+                            "source": "apollo+tomba",
+                        })
+            except Exception as exc:
+                logger.error("Tomba contact search failed for %s: %s", company_domain, exc)
+
+        logger.info("Found %d contacts from Tomba", len(contacts))
+        return contacts
 
     def _extract_keywords(self, domain_name: str, niche: str) -> list[str]:
         base = domain_name.split(".")[0]

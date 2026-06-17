@@ -56,9 +56,18 @@ class BrokerAnalyzer:
 
         availability = await self._check_domain_availability(domain_name)
         marketplace_score = self._estimate_marketplace_score(domain_name, niche)
+        estimated_value = self._estimate_value(domain_name, niche)
+        commission = self._estimate_commission(estimated_value)
+
+        broker_score = self._calculate_broker_score(
+            marketplace_score=marketplace_score,
+            estimated_value=estimated_value,
+        )
 
         try:
-            leads = await self.buyer_discovery.discover_buyers(domain_name, niche)
+            leads = await self.buyer_discovery.discover_buyers(
+                domain_name, niche, broker_score=broker_score
+            )
             self.logger.info(
                 "Buyer discovery found %d leads for %s",
                 leads.get("total_leads", 0),
@@ -75,14 +84,12 @@ class BrokerAnalyzer:
                 "error": str(exc),
             }
 
-        estimated_value = self._estimate_value(domain_name, niche)
-        commission = self._estimate_commission(estimated_value)
         buyer_count = leads.get("total_leads", 0)
 
         broker_score = self._calculate_broker_score(
             marketplace_score=marketplace_score,
-            buyer_count=buyer_count,
             estimated_value=estimated_value,
+            buyer_count=buyer_count,
         )
 
         return {
@@ -181,17 +188,20 @@ class BrokerAnalyzer:
     def _calculate_broker_score(
         self,
         marketplace_score: float,
-        buyer_count: int,
         estimated_value: int,
+        buyer_count: int = 0,
     ) -> float:
-        buyer_score = min(100, buyer_count * 10)
         value_score = min(100, estimated_value / 20)
 
-        score = (
-            0.30 * marketplace_score
-            + 0.40 * buyer_score
-            + 0.30 * value_score
-        )
+        if buyer_count == 0:
+            score = 0.50 * marketplace_score + 0.50 * value_score
+        else:
+            buyer_score = min(100, buyer_count * 10)
+            score = (
+                0.30 * marketplace_score
+                + 0.40 * buyer_score
+                + 0.30 * value_score
+            )
         return round(max(0.0, min(100.0, score)), 2)
 
     def _assign_broker_grade(self, score: float) -> str:
