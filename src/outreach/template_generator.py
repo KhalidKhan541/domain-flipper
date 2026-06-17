@@ -131,3 +131,63 @@ class TemplateGenerator:
             f"could be a great fit for {buyer_company}. "
             f"Open to a quick chat about it?"
         )
+
+    def broker_owner_outreach(
+        self,
+        domain: str,
+        owner_name: str = "",
+        asking_price: int = 0,
+    ) -> dict[str, str]:
+        """Reach out to domain owner to broker their domain."""
+        first_name = owner_name.split()[0] if owner_name else "there"
+
+        subject = f"I have a buyer for {domain}"
+
+        body = (
+            f"Hello {first_name},\n\n"
+            f"I hope you're doing well.\n\n"
+            f"I'm a domain broker, and I noticed your domain **{domain}** is listed "
+            f"for sale. I have a qualified buyer who is actively looking for a domain "
+            f"in this space, and I believe we could close a deal quickly.\n\n"
+            f"I work on a commission basis (15%), so there are no upfront costs to you. "
+            f"If you're interested, I'd love to discuss your asking price and connect "
+            f"you with the buyer.\n\n"
+            f"Thank you for your time.\n\n"
+            f"Best regards,\n\n"
+            f"{SENDER_INFO['name']}\n"
+            f"Email: {SENDER_INFO['email']}\n"
+            f"Contact: {SENDER_INFO['phone']}"
+        )
+
+        return {"subject": subject, "body": body}
+
+    def broker_buyer_outreach(
+        self,
+        domain: str,
+        buyer_name: str,
+        buyer_source: str = "",
+        asking_price: int = 0,
+    ) -> dict[str, str]:
+        """Reach out to buyer with a domain match."""
+        first_name = buyer_name.split()[0] if buyer_name else "there"
+
+        subject = f"Found the perfect domain for you: {domain}"
+
+        body = (
+            f"Hello {first_name},\n\n"
+            f"I hope you're doing well.\n\n"
+            f"I came across your post looking for a domain in this space, and I wanted "
+            f"to let you know that **{domain}** is available. I'm a domain broker, and "
+            f"I can help facilitate the transaction.\n\n"
+            f"The asking price is ${asking_price:,}, and I can negotiate on your behalf "
+            f"to get you the best deal. There are no buyer fees — I work on commission "
+            f"from the seller.\n\n"
+            f"If you're interested, I'd be happy to share more details.\n\n"
+            f"Thank you for your time.\n\n"
+            f"Best regards,\n\n"
+            f"{SENDER_INFO['name']}\n"
+            f"Email: {SENDER_INFO['email']}\n"
+            f"Contact: {SENDER_INFO['phone']}"
+        )
+
+        return {"subject": subject, "body": body}

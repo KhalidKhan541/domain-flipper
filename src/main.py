@@ -16,6 +16,7 @@ from src.database import Database
 from src.coordinators.broker import BrokerCoordinator
 from src.notifiers import TelegramNotifier, DiscordNotifier, EmailNotifier
 from src.outreach.engine import OutboundEngine
+from src.outreach.broker_model import BrokerModel
 from src.reporting import MarkdownReportGenerator, CSVReportGenerator, JSONReportGenerator
 
 
@@ -25,6 +26,7 @@ class DomainBroker:
         self.db: Database = Database(settings.database_path)
         self.coordinator = BrokerCoordinator(db=self.db)
         self.outbound = OutboundEngine(db_path=str(settings.database_path))
+        self.broker_model = BrokerModel()
         self.notifiers: list[Any] = []
         self.reporters: list[Any] = []
 
@@ -68,16 +70,39 @@ class DomainBroker:
     async def run_outbound(self, domains: list[dict]) -> list[dict]:
         return await self.outbound.process_domains(domains, max_count=settings.max_outbound_per_run)
 
-    async def send_notifications(self, domains: list[dict[str, Any]]) -> None:
+    async def run_broker_pipeline(self) -> list[dict[str, Any]]:
+        """Run zero-cost broker model across multiple niches."""
+        niches = ["ai", "saas", "finance", "health", "ecommerce", "education", "security"]
+        all_deals: list[dict[str, Any]] = []
+
+        for niche in niches:
+            try:
+                result = await self.broker_model.run_broker_pipeline(niche)
+                all_deals.extend(result.get("deals", []))
+                self.logger.info(
+                    "Broker pipeline for %s: %d buyers, %d sellers, %d deals",
+                    niche,
+                    result.get("buyers_found", 0),
+                    result.get("sellers_found", 0),
+                    result.get("deals_matched", 0),
+                )
+            except Exception as exc:
+                self.logger.error("Broker pipeline failed for %s: %s", niche, exc)
+
+        return all_deals
+
+    async def send_notifications(self, domains: list[dict[str, Any]], broker_deals: list[dict[str, Any]] = None) -> None:
         if not self.notifiers:
             self.logger.info("No notifiers enabled, skipping notifications")
             return
 
+        broker_deals = broker_deals or []
+
         report_lines = [
             f"Daily Broker Report - {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
-            f"Found {len(domains)} broker opportunities",
+            f"Found {len(domains)} domain opportunities + {len(broker_deals)} broker deals",
             "",
-            "Top Opportunities:",
+            "Top Domain Opportunities:",
         ]
         for i, d in enumerate(domains[:10], 1):
             broker_grade = d.get("broker_grade", "N/A")
@@ -88,6 +113,15 @@ class DomainBroker:
                 f"{i}. {d['domain_name']} — Est: ${est_value} — "
                 f"Commission: ${commission} — Leads: {leads} — Grade: {broker_grade}"
             )
+
+        if broker_deals:
+            report_lines.extend(["", "Zero-Cost Broker Deals:"])
+            for i, deal in enumerate(broker_deals[:5], 1):
+                report_lines.append(
+                    f"{i}. {deal['domain']} — Price: ${deal['asking_price']} — "
+                    f"Your Commission: ${deal['estimated_commission']}"
+                )
+
         report_text = "\n".join(report_lines)
 
         for notifier in self.notifiers:
@@ -131,18 +165,23 @@ class DomainBroker:
             finally:
                 settings.offline_mode = original_offline
 
-            self.logger.info("Step 4/5: Generating reports…")
+            self.logger.info("Step 4/6: Running zero-cost broker pipeline…")
+            broker_deals = await self.run_broker_pipeline()
+            self.logger.info("Broker pipeline found %d deal opportunities", len(broker_deals))
+
+            self.logger.info("Step 5/6: Generating reports…")
             await self.generate_reports(analyzed)
 
-            self.logger.info("Step 5/5: Sending notifications…")
-            await self.send_notifications(analyzed)
+            self.logger.info("Step 6/6: Sending notifications…")
+            await self.send_notifications(analyzed, broker_deals)
 
             elapsed = (datetime.now(timezone.utc) - start).total_seconds()
             self.logger.info("Run completed in %.1fs", elapsed)
             self.logger.info(
-                "Results: %d domains analyzed, %d outreach attempts, top broker grade: %s",
+                "Results: %d domains analyzed, %d outreach attempts, %d broker deals, top broker grade: %s",
                 len(analyzed),
                 len(outbound_results),
+                len(broker_deals),
                 analyzed[0]["broker_grade"] if analyzed else "N/A",
             )
 
