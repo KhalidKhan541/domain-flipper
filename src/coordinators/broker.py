@@ -102,21 +102,21 @@ class BrokerCoordinator:
                             "broker_grade": "Cold",
                         }
 
-                    domain["dr"] = max(domain.get("dr", 0), seo.get("dr", 0))
-                    domain["referring_domains"] = max(domain.get("referring_domains", 0), seo.get("referring_domains", 0))
-                    domain["domain_age"] = max(domain.get("domain_age", 0), seo.get("domain_age", 0))
-                    domain["seo_score"] = seo.get("seo_score", 0)
-                    domain["cleanliness_score"] = history.get("cleanliness_score", 50)
-                    domain["trust_score"] = history.get("trust_score", 50)
-                    domain["category"] = commercial.get("category", "general")
-                    domain["commercial_score"] = commercial.get("commercial_score", 50)
+                    domain["dr"] = max(domain.get("dr", 0) or 0, seo.get("dr", 0) or 0)
+                    domain["referring_domains"] = max(domain.get("referring_domains", 0) or 0, seo.get("referring_domains", 0) or 0)
+                    domain["domain_age"] = max(domain.get("domain_age", 0) or 0, seo.get("domain_age", 0) or 0)
+                    domain["seo_score"] = seo.get("seo_score", 0) or 0
+                    domain["cleanliness_score"] = history.get("cleanliness_score", 50) or 50
+                    domain["trust_score"] = history.get("trust_score", 50) or 50
+                    domain["category"] = commercial.get("category", "general") or "general"
+                    domain["commercial_score"] = commercial.get("commercial_score", 50) or 50
 
-                    domain["marketplace"] = broker.get("marketplace", {})
-                    domain["buyer_leads"] = broker.get("buyer_leads", {})
-                    domain["estimated_value"] = broker.get("estimated_value", 0)
-                    domain["commission"] = broker.get("commission", {})
-                    domain["broker_score"] = broker.get("broker_score", 0)
-                    domain["broker_grade"] = broker.get("broker_grade", "Cold")
+                    domain["marketplace"] = broker.get("marketplace") or {}
+                    domain["buyer_leads"] = broker.get("buyer_leads") or {"total_leads": 0, "leads": []}
+                    domain["estimated_value"] = broker.get("estimated_value") or 0
+                    domain["commission"] = broker.get("commission") or {"amount": 0, "rate": 0.15}
+                    domain["broker_score"] = broker.get("broker_score") or 0
+                    domain["broker_grade"] = broker.get("broker_grade") or "Cold"
 
                     result = self.scoring_engine.calculate(
                         domain=name,
@@ -141,7 +141,7 @@ class BrokerCoordinator:
         tasks = [analyze_one(d) for d in domains]
         results = await asyncio.gather(*tasks)
         analyzed: list[dict[str, Any]] = [r for r in results if r is not None]
-        analyzed.sort(key=lambda x: x.get("broker_score", 0), reverse=True)
+        analyzed.sort(key=lambda x: x.get("broker_score") or 0, reverse=True)
 
         self.logger.info("Broker-analyzed %d domains successfully", len(analyzed))
         return analyzed

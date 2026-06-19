@@ -35,6 +35,12 @@ class ScoringEngine:
         dr: float = 0.0,
         referring_domains: int = 0,
     ) -> dict:
+        # Handle None values
+        price = price if price is not None else 0.0
+        seo_score = seo_score if seo_score is not None else 0.0
+        commercial_score = commercial_score if commercial_score is not None else 0.0
+        trust_score = trust_score if trust_score is not None else 0.0
+        cleanliness_score = cleanliness_score if cleanliness_score is not None else 0.0
         self.logger.info(
             "Calculating final score for domain=%s price=%.2f seo=%.1f commercial=%.1f "
             "trust=%.1f cleanliness=%.1f dr=%.0f ref_domains=%d",
