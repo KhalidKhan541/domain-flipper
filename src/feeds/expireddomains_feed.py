@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from src.feeds.base import BaseFeed
+from src.feeds.quality_filter import filter_domains
 from src.utils import setup_logger
 
 DOMAIN_REGEX = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.[a-z]{2,}$")
@@ -74,7 +75,8 @@ class ExpiredDomainsFeed(BaseFeed):
             self.logger.warning("All sources returned empty")
 
         unique_domains = list(dict.fromkeys(all_domains))
-        return [self._make_domain_dict(d) for d in unique_domains[:max_domains]]
+        domain_dicts = [self._make_domain_dict(d) for d in unique_domains[:max_domains]]
+        return filter_domains(domain_dicts)
 
     def _parse_domain_table(self, html: str) -> list[str]:
         domains: list[str] = []

@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 from src.feeds.base import BaseFeed
+from src.feeds.quality_filter import filter_domains
 from src.utils import setup_logger
 
 DOMAIN_RE = re.compile(
@@ -69,7 +70,8 @@ class AuctionFeed(BaseFeed):
             self.logger.warning("All sources returned empty — returning empty (no fallback)")
 
         result_domains = list(dict.fromkeys(collected))[:max_domains]
-        return [self._build_domain(d) for d in result_domains]
+        domain_dicts = [self._build_domain(d) for d in result_domains]
+        return filter_domains(domain_dicts)
 
     async def _fetch_page(self, browser, url: str) -> str:
         context = await browser.new_context(

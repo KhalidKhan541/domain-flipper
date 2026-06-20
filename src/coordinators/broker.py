@@ -16,6 +16,7 @@ from src.config import settings
 from src.database import Database
 from src.feeds.auction_feed import AuctionFeed
 from src.feeds.expireddomains_feed import ExpiredDomainsFeed
+from src.feeds.quality_filter import filter_domains
 from src.generators.keyword_generator import KeywordGenerator
 from src.generators.thesaurus_generator import ThesaurusGenerator
 from src.constants import NICHES
@@ -53,6 +54,7 @@ class BrokerCoordinator:
         generated = await self._check_available(candidates)
 
         merged = self._merge_domains(generated, feed_domains)
+        merged = filter_domains(merged)
         final = merged[:max_domains]
 
         self.logger.info(
