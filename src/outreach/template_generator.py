@@ -9,6 +9,12 @@ SENDER_INFO = {
     "phone": "03019883536",
 }
 
+PAYMENT_INFO = (
+    "For secure payment, I accept **Escrow.com** (USD), **Binance** (USDT/BNB), "
+    "or **Easypaisa** (direct PKR conversion). This protects both parties and "
+    "makes international transactions simple and safe."
+)
+
 
 class TemplateGenerator:
     """Generates cold outreach email/DM templates for domain brokering."""
@@ -37,10 +43,7 @@ class TemplateGenerator:
             f"The domain is short, memorable, and highly relevant to your business. It could "
             f"help strengthen your online presence, improve brand recognition, and provide a "
             f"premium digital asset for future growth.\n\n"
-            f"To ensure a completely safe and transparent transaction, I use **Escrow.com** "
-            f"— a trusted third-party service that holds the payment until you receive full "
-            f"ownership of the domain. You only pay when you're satisfied, and I only get paid "
-            f"when the domain is successfully transferred to you. This protects both sides.\n\n"
+            f"{PAYMENT_INFO}\n\n"
             f"If this is something your team might be interested in, I'd be happy to discuss "
             f"details and pricing.\n\n"
             f"Thank you for your time, and I look forward to hearing from you.\n\n"
@@ -70,10 +73,7 @@ class TemplateGenerator:
             f"could be the perfect match.\n\n"
             f"I work on a commission basis — I only get paid when the deal closes. You set "
             f"the price, I handle the negotiation and connect you with the buyer.\n\n"
-            f"For complete safety and transparency, the transaction goes through "
-            f"**Escrow.com**, a trusted third-party service. The buyer deposits the funds, "
-            f"you transfer the domain, and once the buyer confirms receipt, the funds are "
-            f"released to you. No risk, no upfront fees.\n\n"
+            f"{PAYMENT_INFO}\n\n"
             f"Would you be open to a quick discussion about this?\n\n"
             f"Thank you for your time.\n\n"
             f"Best regards,\n\n"
@@ -164,10 +164,7 @@ class TemplateGenerator:
             f"could be the perfect match.\n\n"
             f"I work on a commission basis — I only get paid when the deal closes. You set "
             f"the price, I handle the negotiation and connect you with the buyer.\n\n"
-            f"For complete safety and transparency, the transaction goes through "
-            f"**Escrow.com**, a trusted third-party service. The buyer deposits the funds, "
-            f"you transfer the domain, and once the buyer confirms receipt, the funds are "
-            f"released to you. No risk, no upfront fees.\n\n"
+            f"{PAYMENT_INFO}\n\n"
             f"Would you be open to a quick discussion about this?\n\n"
             f"Thank you for your time.\n\n"
             f"Best regards,\n\n"
@@ -200,11 +197,7 @@ class TemplateGenerator:
             f"The asking price is ${asking_price:,}, and I can negotiate on your behalf "
             f"to get you the best deal. There are no buyer fees — I work on commission "
             f"from the seller.\n\n"
-            f"To ensure a completely safe and transparent transaction, I use "
-            f"**Escrow.com** — a trusted third-party service that holds the payment "
-            f"until you receive full ownership of the domain. You only pay when you're "
-            f"satisfied, and I only get paid when the domain is successfully transferred "
-            f"to you. This protects both sides.\n\n"
+            f"{PAYMENT_INFO}\n\n"
             f"If this is something your team might be interested in, I'd be happy to "
             f"share more details.\n\n"
             f"Thank you for your time.\n\n"
