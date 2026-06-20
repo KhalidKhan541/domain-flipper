@@ -1,0 +1,111 @@
+{
+  "name": "📧 Domain Outreach Automator",
+  "nodes": [
+    {
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "set-inputs",
+      "name": "Set Lead Details",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [500, 300],
+      "parameters": {
+        "values": {
+          "string": [
+            { "name": "domain", "value": "example.com" },
+            { "name": "buyer_email", "value": "buyer@company.com" },
+            { "name": "buyer_name", "value": "John" },
+            { "name": "niche", "value": "ai" },
+            { "name": "company", "value": "Company Name" },
+            { "name": "action", "value": "outreach" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "generate-email",
+      "name": "Generate Email from Template",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [780, 300],
+      "parameters": {
+        "language": "javaScript",
+        "code": "// Generate professional outreach email\nconst item = $input.first().json;\nconst domain = item.domain || 'example.com';\nconst buyerName = item.buyer_name || 'there';\nconst niche = item.niche || 'technology';\nconst company = item.company || 'your company';\nconst firstName = buyerName.split(' ')[0];\n\nconst subject = `Premium ${domain} — Perfect Fit for ${company}`;\n\nconst body = `Hello ${firstName},\n\nI hope you're doing well.\n\nI noticed that your company operates in the ${niche} space, and I wanted to reach out because I currently own the domain ${domain}, which I believe could be a strong fit for your brand.\n\nThe domain is short, memorable, and highly relevant to your business. It could help strengthen your online presence, improve brand recognition, and provide a premium digital asset for future growth.\n\nIf this is something your team might be interested in, I'd be happy to discuss details and pricing.\n\nThank you for your time, and I look forward to hearing from you.\n\nBest regards,\n\nKhalid Khan\nEmail: khalid.khan46571@gmail.com\nContact: 03019883536`;\n\nreturn [{\n  json: {\n    ...item,\n    email_subject: subject,\n    email_body: body\n  }\n}];"
+      }
+    },
+    {
+      "id": "send-email",
+      "name": "Send via Gmail SMTP",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [1060, 200],
+      "parameters": {
+        "fromEmail": "khalid.khan46571@gmail.com",
+        "toEmail": "={{ $json.buyer_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "text": "={{ $json.email_body }}",
+        "options": {}
+      },
+      "credentials": {
+        "smtp": {
+          "id": "PLACEHOLDER_SMTP",
+          "name": "Gmail SMTP"
+        }
+      }
+    },
+    {
+      "id": "discord-notify",
+      "name": "Log to Discord",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1060, 460],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.DISCORD_WEBHOOK_URL }}",
+        "authentication": "none",
+        "sendBody": true,
+        "jsonBody": "{\n  \"embeds\": [{\n    \"title\": \"📧 Outreach Sent\",\n    \"color\": 5763719,\n    \"fields\": [\n      {\"name\": \"Domain\", \"value\": \"{{ $json.domain }}\", \"inline\": true},\n      {\"name\": \"Buyer\", \"value\": \"{{ $json.buyer_name }}\", \"inline\": true},\n      {\"name\": \"Email\", \"value\": \"{{ $json.buyer_email }}\", \"inline\": true},\n      {\"name\": \"Niche\", \"value\": \"{{ $json.niche }}\", \"inline\": true}\n    ],\n    \"footer\": {\"text\": \"n8n Outreach\"},\n    \"timestamp\": \"{{ new Date().toISOString() }}\"\n  }]\n}",
+        "options": {
+          "timeout": 15000
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          { "node": "Set Lead Details", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Set Lead Details": {
+      "main": [
+        [
+          { "node": "Generate Email from Template", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Generate Email from Template": {
+      "main": [
+        [
+          { "node": "Send via Gmail SMTP", "type": "main", "index": 0 },
+          { "node": "Log to Discord", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timezone": "Asia/Karachi",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "tags": []
+}
