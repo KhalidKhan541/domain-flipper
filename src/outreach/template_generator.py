@@ -37,6 +37,10 @@ class TemplateGenerator:
             f"The domain is short, memorable, and highly relevant to your business. It could "
             f"help strengthen your online presence, improve brand recognition, and provide a "
             f"premium digital asset for future growth.\n\n"
+            f"To ensure a completely safe and transparent transaction, I use **Escrow.com** "
+            f"— a trusted third-party service that holds the payment until you receive full "
+            f"ownership of the domain. You only pay when you're satisfied, and I only get paid "
+            f"when the domain is successfully transferred to you. This protects both sides.\n\n"
             f"If this is something your team might be interested in, I'd be happy to discuss "
             f"details and pricing.\n\n"
             f"Thank you for your time, and I look forward to hearing from you.\n\n"
@@ -53,17 +57,25 @@ class TemplateGenerator:
         domain: str,
         seller_name: str,
         estimated_value: int,
+        niche: str = "general",
     ) -> dict[str, str]:
-        subject = f"Interested in purchasing {domain}"
+        first_name = seller_name.split()[0] if seller_name else "there"
+        subject = f"I Have a Buyer for {domain}"
 
         body = (
-            f"Hi {seller_name},\n\n"
-            f"I am reaching out as a domain broker representing a qualified buyer "
-            f"who is interested in acquiring {domain}. We have assessed the domain "
-            f"and estimate its current market value at approximately ${estimated_value:,}.\n\n"
-            f"I would love to discuss this further and see if there is mutual interest "
-            f"in moving forward with a potential transaction.\n\n"
-            f"Please let me know if you would be open to a quick call or email exchange.\n\n"
+            f"Hello {first_name},\n\n"
+            f"I hope you're doing well.\n\n"
+            f"I'm a domain broker, and I currently have a qualified buyer who is actively "
+            f"looking for a domain in the {niche} space. I believe your domain **{domain}** "
+            f"could be the perfect match.\n\n"
+            f"I work on a commission basis — I only get paid when the deal closes. You set "
+            f"the price, I handle the negotiation and connect you with the buyer.\n\n"
+            f"For complete safety and transparency, the transaction goes through "
+            f"**Escrow.com**, a trusted third-party service. The buyer deposits the funds, "
+            f"you transfer the domain, and once the buyer confirms receipt, the funds are "
+            f"released to you. No risk, no upfront fees.\n\n"
+            f"Would you be open to a quick discussion about this?\n\n"
+            f"Thank you for your time.\n\n"
             f"Best regards,\n\n"
             f"{SENDER_INFO['name']}\n"
             f"Email: {SENDER_INFO['email']}\n"
@@ -137,21 +149,26 @@ class TemplateGenerator:
         domain: str,
         owner_name: str = "",
         asking_price: int = 0,
+        niche: str = "general",
     ) -> dict[str, str]:
         """Reach out to domain owner to broker their domain."""
         first_name = owner_name.split()[0] if owner_name else "there"
 
-        subject = f"I have a buyer for {domain}"
+        subject = f"I Have a Buyer for {domain}"
 
         body = (
             f"Hello {first_name},\n\n"
             f"I hope you're doing well.\n\n"
-            f"I'm a domain broker, and I noticed your domain **{domain}** is listed "
-            f"for sale. I have a qualified buyer who is actively looking for a domain "
-            f"in this space, and I believe we could close a deal quickly.\n\n"
-            f"I work on a commission basis (15%), so there are no upfront costs to you. "
-            f"If you're interested, I'd love to discuss your asking price and connect "
-            f"you with the buyer.\n\n"
+            f"I'm a domain broker, and I currently have a qualified buyer who is actively "
+            f"looking for a domain in the {niche} space. I believe your domain **{domain}** "
+            f"could be the perfect match.\n\n"
+            f"I work on a commission basis — I only get paid when the deal closes. You set "
+            f"the price, I handle the negotiation and connect you with the buyer.\n\n"
+            f"For complete safety and transparency, the transaction goes through "
+            f"**Escrow.com**, a trusted third-party service. The buyer deposits the funds, "
+            f"you transfer the domain, and once the buyer confirms receipt, the funds are "
+            f"released to you. No risk, no upfront fees.\n\n"
+            f"Would you be open to a quick discussion about this?\n\n"
             f"Thank you for your time.\n\n"
             f"Best regards,\n\n"
             f"{SENDER_INFO['name']}\n"
@@ -167,22 +184,29 @@ class TemplateGenerator:
         buyer_name: str,
         buyer_source: str = "",
         asking_price: int = 0,
+        niche: str = "general",
     ) -> dict[str, str]:
         """Reach out to buyer with a domain match."""
         first_name = buyer_name.split()[0] if buyer_name else "there"
 
-        subject = f"Found the perfect domain for you: {domain}"
+        subject = f"Premium {domain} — Perfect Fit for Your Needs"
 
         body = (
             f"Hello {first_name},\n\n"
             f"I hope you're doing well.\n\n"
-            f"I came across your post looking for a domain in this space, and I wanted "
-            f"to let you know that **{domain}** is available. I'm a domain broker, and "
-            f"I can help facilitate the transaction.\n\n"
+            f"I came across your post looking for a domain in the {niche} space, and "
+            f"I wanted to let you know that **{domain}** is available. I'm a domain "
+            f"broker, and I can help facilitate the transaction.\n\n"
             f"The asking price is ${asking_price:,}, and I can negotiate on your behalf "
             f"to get you the best deal. There are no buyer fees — I work on commission "
             f"from the seller.\n\n"
-            f"If you're interested, I'd be happy to share more details.\n\n"
+            f"To ensure a completely safe and transparent transaction, I use "
+            f"**Escrow.com** — a trusted third-party service that holds the payment "
+            f"until you receive full ownership of the domain. You only pay when you're "
+            f"satisfied, and I only get paid when the domain is successfully transferred "
+            f"to you. This protects both sides.\n\n"
+            f"If this is something your team might be interested in, I'd be happy to "
+            f"share more details.\n\n"
             f"Thank you for your time.\n\n"
             f"Best regards,\n\n"
             f"{SENDER_INFO['name']}\n"

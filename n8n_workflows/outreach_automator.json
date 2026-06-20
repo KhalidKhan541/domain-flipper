@@ -23,7 +23,10 @@
             { "name": "buyer_name", "value": "John" },
             { "name": "niche", "value": "ai" },
             { "name": "company", "value": "Company Name" },
-            { "name": "action", "value": "outreach" }
+            { "name": "seller_email", "value": "owner@domain.com" },
+            { "name": "seller_name", "value": "Owner" },
+            { "name": "asking_price", "value": "500" },
+            { "name": "action", "value": "buyer" }
           ]
         },
         "options": {}
@@ -37,7 +40,7 @@
       "position": [780, 300],
       "parameters": {
         "language": "javaScript",
-        "code": "// Generate professional outreach email\nconst item = $input.first().json;\nconst domain = item.domain || 'example.com';\nconst buyerName = item.buyer_name || 'there';\nconst niche = item.niche || 'technology';\nconst company = item.company || 'your company';\nconst firstName = buyerName.split(' ')[0];\n\nconst subject = `Premium ${domain} — Perfect Fit for ${company}`;\n\nconst body = `Hello ${firstName},\n\nI hope you're doing well.\n\nI noticed that your company operates in the ${niche} space, and I wanted to reach out because I currently own the domain ${domain}, which I believe could be a strong fit for your brand.\n\nThe domain is short, memorable, and highly relevant to your business. It could help strengthen your online presence, improve brand recognition, and provide a premium digital asset for future growth.\n\nIf this is something your team might be interested in, I'd be happy to discuss details and pricing.\n\nThank you for your time, and I look forward to hearing from you.\n\nBest regards,\n\nKhalid Khan\nEmail: khalid.khan46571@gmail.com\nContact: 03019883536`;\n\nreturn [{\n  json: {\n    ...item,\n    email_subject: subject,\n    email_body: body\n  }\n}];"
+        "code": "// Generate professional outreach email\nconst item = $input.first().json;\nconst domain = item.domain || 'example.com';\nconst niche = item.niche || 'technology';\nconst company = item.company || 'your company';\nconst action = item.action || 'buyer';\n\nlet subject, body, toEmail;\n\nif (action === 'seller') {\n  // Seller template\n  const sellerName = item.seller_name || 'there';\n  const firstName = sellerName.split(' ')[0];\n  const price = item.asking_price || 'negotiable';\n  toEmail = item.seller_email;\n  \n  subject = `I Have a Buyer for ${domain}`;\n  \n  body = `Hello ${firstName},\\n\\nI hope you're doing well.\\n\\nI'm a domain broker, and I currently have a qualified buyer who is actively looking for a domain in the ${niche} space. I believe your domain ${domain} could be the perfect match.\\n\\nI work on a commission basis — I only get paid when the deal closes. You set the price, I handle the negotiation and connect you with the buyer.\\n\\nFor complete safety and transparency, the transaction goes through Escrow.com, a trusted third-party service. The buyer deposits the funds, you transfer the domain, and once the buyer confirms receipt, the funds are released to you. No risk, no upfront fees.\\n\\nWould you be open to a quick discussion about this?\\n\\nThank you for your time.\\n\\nBest regards,\\n\\nKhalid Khan\\nEmail: khalid.khan46571@gmail.com\\nContact: 03019883536`;\n} else {\n  // Buyer template\n  const buyerName = item.buyer_name || 'there';\n  const firstName = buyerName.split(' ')[0];\n  toEmail = item.buyer_email;\n  \n  subject = `Premium ${domain} — Perfect Fit for ${company}`;\n  \n  body = `Hello ${firstName},\\n\\nI hope you're doing well.\\n\\nI noticed that your company operates in the ${niche} space, and I wanted to reach out because I currently own the domain ${domain}, which I believe could be a strong fit for your brand.\\n\\nThe domain is short, memorable, and highly relevant to your business. It could help strengthen your online presence, improve brand recognition, and provide a premium digital asset for future growth.\\n\\nTo ensure a completely safe and transparent transaction, I use Escrow.com — a trusted third-party service that holds the payment until you receive full ownership of the domain. You only pay when you're satisfied, and I only get paid when the domain is successfully transferred to you. This protects both sides.\\n\\nIf this is something your team might be interested in, I'd be happy to discuss details and pricing.\\n\\nThank you for your time, and I look forward to hearing from you.\\n\\nBest regards,\\n\\nKhalid Khan\\nEmail: khalid.khan46571@gmail.com\\nContact: 03019883536`;\n}\n\nreturn [{\n  json: {\n    ...item,\n    to_email: toEmail,\n    email_subject: subject,\n    email_body: body\n  }\n}];"
       }
     },
     {
@@ -48,7 +51,7 @@
       "position": [1060, 200],
       "parameters": {
         "fromEmail": "khalid.khan46571@gmail.com",
-        "toEmail": "={{ $json.buyer_email }}",
+        "toEmail": "={{ $json.to_email }}",
         "subject": "={{ $json.email_subject }}",
         "text": "={{ $json.email_body }}",
         "options": {}
