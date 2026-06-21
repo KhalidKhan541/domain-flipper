@@ -10,9 +10,13 @@ SENDER_INFO = {
 }
 
 PAYMENT_INFO = (
-    "For secure payment, I accept **Escrow.com** (USD), **Binance** (USDT/BNB), "
-    "or **Easypaisa** (direct PKR conversion). This protects both parties and "
-    "makes international transactions simple and safe."
+    "For secure payment, I accept **Escrow.com** (USD), **USDT (TRC-20)**, "
+    "**Bitcoin Cash**, or **Litecoin**. This protects both parties and makes "
+    "international transactions simple and safe.\n\n"
+    "My crypto addresses for direct payment:\n"
+    "**USDT (TRC-20):** `TWNwnmPfpDpVQkDXVjjn6Ms4VmzSGHatVT`\n"
+    "**Bitcoin Cash:** `qqkg0w73eta3n92e3ypplttv84qy3vc04uvr9xxh4a`\n"
+    "**Litecoin:** `ltc1q9jrmh5w2lvve2kvfqg066mpagpytxra0ywp0ts`"
 )
 
 
