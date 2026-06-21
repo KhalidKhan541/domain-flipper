@@ -2,8 +2,11 @@ name: Daily Domain Discovery
 
 on:
   schedule:
-    - cron: '0 8 * * *'
-  workflow_dispatch:  # Allow manual trigger
+    # 3x daily: 8 AM, 2 PM, 8 PM Pakistan time (UTC: 3 AM, 9 AM, 3 PM)
+    - cron: '0 3 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 15 * * *'
+  workflow_dispatch:
 
 jobs:
   discover:
@@ -39,26 +42,26 @@ jobs:
           echo "PREFERRED_MAX=50" >> .env
           echo "EXCEPTIONAL_MAX=300" >> .env
       
-      - name: Run domain discovery
-        run: python -m src.main
-        timeout-minutes: 30
+      - name: Run buyer discovery (Reddit + HN)
+        run: python -m src.scanners.buyer_discovery
         env:
           PYTHONUNBUFFERED: 1
       
-      - name: Send Discord notification
-        if: always()
-        run: |
-          DISCOVERED=$(ls data/reports/ 2>/dev/null | wc -l)
-          if [ "$DISCOVERED" -gt 0 ]; then
-            MSG="✅ Domain discovery completed. Reports generated: $DISCOVERED. Artifacts available in workflow run."
-          else
-            MSG="⚠️ Domain discovery completed but no reports found."
-          fi
-          curl -s -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"content\": \"$MSG\"}"
+      - name: Run domain broker pipeline
+        run: python -m src.main
+        timeout-minutes: 25
+        env:
+          PYTHONUNBUFFERED: 1
       
-      - name: Upload reports as artifacts
+      - name: Upload leads
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: buyer-leads
+          path: data/buyer_leads.json
+          retention-days: 30
+      
+      - name: Upload reports
         uses: actions/upload-artifact@v4
         if: always()
         with:
