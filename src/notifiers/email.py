@@ -21,6 +21,7 @@ def _build_html_table(domains: list[dict]) -> str:
     for d in domains[:20]:
         commission = d.get("commission", {}).get("amount", 0)
         buyer_leads = d.get("buyer_leads", {}).get("total_leads", 0)
+        seller_name = d.get("owner_contact", {}).get("registrant_name", "N/A")
         rows_html += (
             "<tr>"
             f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('domain_name', '')}</td>"
@@ -30,6 +31,7 @@ def _build_html_table(domains: list[dict]) -> str:
             f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('broker_score', 0)}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('broker_grade', 'Cold')}</td>"
             f"<td style='padding:8px;border:1px solid #ddd;'>{d.get('category', 'Uncategorized')}</td>"
+            f"<td style='padding:8px;border:1px solid #ddd;'>{seller_name}</td>"
             "</tr>"
         )
 
@@ -47,6 +49,7 @@ def _build_html_table(domains: list[dict]) -> str:
         "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Broker Score</th>"
         "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Grade</th>"
         "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Niche</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #ddd;'>Seller</th>"
         "</tr>"
         "</thead>"
         "<tbody>"

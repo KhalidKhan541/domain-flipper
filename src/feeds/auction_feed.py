@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import random
 import re
 
+import httpx
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 
 from src.feeds.base import BaseFeed
 from src.feeds.quality_filter import filter_domains
@@ -18,21 +17,30 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:125.0) Gecko/20100101 Firefox/125.0",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
 ]
 
-PAGE_TIMEOUT_MS = 60_000
+# Known websites to exclude (not actual expired domains)
+EXCLUDE_DOMAINS = {
+    "expireddomains.net", "domainsindex.com", "porkbun.com",
+    "namecheap.com", "godaddy.com", "dynadot.com", "namesilo.com",
+    "cloudflare.com", "google.com", "facebook.com", "twitter.com",
+    "github.com", "stackoverflow.com", "amazon.com", "microsoft.com",
+    "apple.com", "wikipedia.org", "reddit.com", "linkedin.com",
+    "flippa.com", "afternic.com", "sedo.com", "dan.com",
+    "catched.com", "gname.com", "nicsell.com", "majestic.com",
+    "ahrefs.com", "semrush.com", "moz.com",
+}
 
 
 class AuctionFeed(BaseFeed):
+    """Fetches expired/auction domains via simple HTTP requests (no Playwright)."""
+
     source = "auctionfeed"
 
     SOURCES = {
-        "namecheap": "https://www.namecheap.com/domains/expired/",
-        "domainpunch": "https://domainpunch.com/tlds/expired.php",
-        "namebright": "https://www.namebright.com/expired",
+        "porkbun_expired": "https://porkbun.com/checkout/search?q=&tld=com",
+        "namesilo": "https://www.namesilo.com/domain/search-domains",
+        "godaddy": "https://www.godaddy.com/domainsearch/find?domainToCheck=",
     }
 
     def __init__(self) -> None:
@@ -41,30 +49,33 @@ class AuctionFeed(BaseFeed):
     async def fetch(self, max_domains: int = 200) -> list[dict]:
         collected: list[str] = []
 
-        try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=True)
+        async with httpx.AsyncClient(
+            headers={
+                "User-Agent": USER_AGENTS[0],
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            follow_redirects=True,
+            timeout=30.0,
+        ) as client:
+            for name, url in self.SOURCES.items():
+                if len(collected) >= max_domains:
+                    break
                 try:
-                    for name, url in self.SOURCES.items():
-                        if len(collected) >= max_domains:
-                            break
-                        try:
-                            html = await self._fetch_page(browser, url)
-                            if not html:
-                                self.logger.warning("Empty HTML from %s", name)
-                                continue
-                            domains = self._parse_page(html, name)
-                            if domains:
-                                self.logger.info("Fetched %d domains from %s", len(domains), name)
-                                collected.extend(domains)
-                            else:
-                                self.logger.warning("No domains parsed from %s", name)
-                        except Exception:
-                            self.logger.warning("Scrape failed for %s", name, exc_info=True)
-                finally:
-                    await browser.close()
-        except Exception:
-            self.logger.exception("Failed to launch Playwright browser")
+                    resp = await client.get(url)
+                    if resp.status_code != 200:
+                        self.logger.warning("HTTP %d from %s", resp.status_code, name)
+                        continue
+
+                    html = resp.text
+                    domains = self._parse_page(html, name)
+                    if domains:
+                        self.logger.info("Fetched %d domains from %s", len(domains), name)
+                        collected.extend(domains)
+                    else:
+                        self.logger.warning("No domains parsed from %s", name)
+                except Exception:
+                    self.logger.warning("Scrape failed for %s", name, exc_info=True)
 
         if not collected:
             self.logger.warning("All sources returned empty — returning empty (no fallback)")
@@ -73,105 +84,37 @@ class AuctionFeed(BaseFeed):
         domain_dicts = [self._build_domain(d) for d in result_domains]
         return filter_domains(domain_dicts)
 
-    async def _fetch_page(self, browser, url: str) -> str:
-        context = await browser.new_context(
-            user_agent=random.choice(USER_AGENTS),
-            viewport={"width": 1920, "height": 1080},
-            locale="en-US",
-        )
-        try:
-            page = await context.new_page()
-            await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
-            try:
-                await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
-            except Exception:
-                self.logger.debug("networkidle timed out for %s, proceeding", url)
-            return await page.content()
-        finally:
-            await context.close()
-
     def _parse_page(self, html: str, source: str) -> list[str]:
-        if source == "namecheap":
-            return self._parse_namecheap(html)
-        if source == "domainpunch":
-            return self._parse_domainpunch(html)
-        if source == "namebright":
-            return self._parse_namebright(html)
-        return []
-
-    def _parse_namecheap(self, html: str) -> list[str]:
+        """Extract domain names from HTML."""
         domains: list[str] = []
         soup = BeautifulSoup(html, "html.parser")
 
-        for el in soup.select("a[href*='/domains/expired/']"):
-            text = el.get_text(strip=True)
-            if DOMAIN_RE.match(text):
-                domains.append(text.lower())
+        # Strategy 1: Table cells
+        for table in soup.find_all("table"):
+            for row in table.find_all("tr"):
+                cells = row.find_all("td")
+                for cell in cells:
+                    text = cell.get_text(strip=True).lower()
+                    if DOMAIN_RE.match(text) and text not in EXCLUDE_DOMAINS:
+                        domains.append(text)
 
-        for el in soup.find_all("td", class_=re.compile(r"domain|name", re.I)):
-            text = el.get_text(strip=True)
-            if DOMAIN_RE.match(text):
-                domains.append(text.lower())
+        # Strategy 2: Links with domain in href
+        for link in soup.find_all("a", href=True):
+            href = link.get("href", "")
+            text = link.get_text(strip=True).lower()
+            if DOMAIN_RE.match(text) and text not in EXCLUDE_DOMAINS:
+                domains.append(text)
+            if "domain" in href.lower():
+                parts = href.split("/")
+                for part in parts:
+                    if DOMAIN_RE.match(part.lower()) and part.lower() not in EXCLUDE_DOMAINS:
+                        domains.append(part.lower())
 
-        for el in soup.find_all("div", class_=re.compile(r"domain|name", re.I)):
-            text = el.get_text(strip=True)
-            match = re.search(
-                r"([a-zA-Z0-9][a-zA-Z0-9.-]+[a-zA-Z0-9]\.[a-zA-Z]{2,})", text
-            )
-            if match and DOMAIN_RE.match(match.group(1)):
-                domains.append(match.group(1).lower())
-
-        return list(dict.fromkeys(domains))
-
-    def _parse_domainpunch(self, html: str) -> list[str]:
-        domains: list[str] = []
-        soup = BeautifulSoup(html, "html.parser")
-
-        for tag in soup.find_all(["a", "td", "li"]):
-            text = tag.get_text(strip=True)
-            for word in text.split():
-                word = word.strip(",;.")
-                if DOMAIN_RE.match(word):
-                    domains.append(word.lower())
-
-        for pre in soup.find_all("pre"):
-            for line in pre.get_text().splitlines():
-                line = line.strip()
-                if DOMAIN_RE.match(line):
-                    domains.append(line.lower())
-
-        for el in soup.find_all("div", class_=re.compile(r"domain|expired", re.I)):
-            text = el.get_text(strip=True)
-            for word in text.split():
-                word = word.strip(",;.")
-                if DOMAIN_RE.match(word):
-                    domains.append(word.lower())
-
-        return list(dict.fromkeys(domains))
-
-    def _parse_namebright(self, html: str) -> list[str]:
-        domains: list[str] = []
-        soup = BeautifulSoup(html, "html.parser")
-
-        for el in soup.select("a[href*='/domain/']"):
-            text = el.get_text(strip=True)
-            if DOMAIN_RE.match(text):
-                domains.append(text.lower())
-
-        for el in soup.find_all("td", class_=re.compile(r"domain|name", re.I)):
-            text = el.get_text(strip=True)
-            if DOMAIN_RE.match(text):
-                domains.append(text.lower())
-
-        for row in soup.select("table tr"):
-            cells = row.find_all("td")
-            if len(cells) >= 3:
-                text = cells[0].get_text(strip=True)
-                if DOMAIN_RE.match(text):
-                    domains.append(text.lower())
-                text2 = cells[1].get_text(strip=True)
-                if DOMAIN_RE.match(text2):
-                    domains.append(text2.lower())
+        # Strategy 3: Regex scan entire HTML
+        found = re.findall(r'\b([a-z0-9-]{2,63}\.(?:com|io|ai|co|net|org|dev|app))\b', html)
+        for d in found:
+            if DOMAIN_RE.match(d) and d not in EXCLUDE_DOMAINS:
+                domains.append(d)
 
         return list(dict.fromkeys(domains))
 

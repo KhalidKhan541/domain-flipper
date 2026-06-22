@@ -16,6 +16,7 @@ from src.config import settings
 from src.database import Database
 from src.feeds.auction_feed import AuctionFeed
 from src.feeds.expireddomains_feed import ExpiredDomainsFeed
+from src.feeds.free_scraper import FreeDomainScraper
 from src.feeds.quality_filter import filter_domains
 from src.generators.keyword_generator import KeywordGenerator
 from src.generators.thesaurus_generator import ThesaurusGenerator
@@ -32,6 +33,7 @@ class BrokerCoordinator:
         self.thesaurus_gen = ThesaurusGenerator()
         self.checker = RDAPChecker()
         self.feeds = [ExpiredDomainsFeed(), AuctionFeed()]
+        self.free_scraper = FreeDomainScraper()
         self.seo_analyzer = SEOAnalyzer()
         self.commercial_analyzer = CommercialAnalyzer()
         self.history_analyzer = HistoryAnalyzer()
@@ -178,6 +180,15 @@ class BrokerCoordinator:
             else:
                 self.logger.info("Feed %s returned %d domains", feed.source, len(result))
                 all_domains.extend(result)
+
+        # Also run the free scraper
+        try:
+            free_domains = await self.free_scraper.fetch_all(max_domains=200)
+            self.logger.info("Free scraper returned %d domains", len(free_domains))
+            all_domains.extend(free_domains)
+        except Exception as e:
+            self.logger.error("Free scraper failed: %s", e)
+
         seen: set[str] = set()
         unique: list[dict] = []
         for d in all_domains:

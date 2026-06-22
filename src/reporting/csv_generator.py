@@ -29,6 +29,8 @@ class CSVReportGenerator:
             "marketplace_listed",
             "marketplace_count",
             "niche",
+            "seller_name",
+            "seller_email",
             "dr",
             "referring_domains",
             "domain_age",
@@ -42,6 +44,7 @@ class CSVReportGenerator:
 
         for rank, domain in enumerate(domains, 1):
             marketplace = domain.get("marketplace", {})
+            owner_contact = domain.get("owner_contact", {})
             writer.writerow([
                 rank,
                 domain.get("domain_name", ""),
@@ -53,6 +56,8 @@ class CSVReportGenerator:
                 "Yes" if marketplace.get("is_listed") else "No",
                 len(marketplace.get("listings", [])),
                 domain.get("category", ""),
+                owner_contact.get("registrant_name", ""),
+                owner_contact.get("registrant_email", ""),
                 domain.get("dr", ""),
                 domain.get("referring_domains", ""),
                 domain.get("domain_age", ""),

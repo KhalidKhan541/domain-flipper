@@ -18,6 +18,7 @@ from src.notifiers import TelegramNotifier, DiscordNotifier, EmailNotifier
 from src.outreach.engine import OutboundEngine
 from src.outreach.broker_model import BrokerModel
 from src.reporting import MarkdownReportGenerator, CSVReportGenerator, JSONReportGenerator
+from src.trading import WalletManager, DomainVerifier, EscrowManager, DomainTransfer, CashoutManager
 
 
 class DomainBroker:
@@ -29,6 +30,13 @@ class DomainBroker:
         self.broker_model = BrokerModel()
         self.notifiers: list[Any] = []
         self.reporters: list[Any] = []
+
+        # Trading modules
+        self.wallet = WalletManager()
+        self.verifier = DomainVerifier()
+        self.escrow = EscrowManager()
+        self.transfer = DomainTransfer()
+        self.cashout = CashoutManager()
 
     async def initialize(self) -> None:
         await self.db.init_db()
@@ -109,9 +117,10 @@ class DomainBroker:
             est_value = d.get("estimated_value", 0)
             commission = d.get("commission", {}).get("amount", 0)
             leads = d.get("buyer_leads", {}).get("total_leads", 0)
+            seller = d.get("owner_contact", {}).get("registrant_name", "N/A") or "N/A"
             report_lines.append(
                 f"{i}. {d['domain_name']} — Est: ${est_value} — "
-                f"Commission: ${commission} — Leads: {leads} — Grade: {broker_grade}"
+                f"Commission: ${commission} — Leads: {leads} — Grade: {broker_grade} — Seller: {seller}"
             )
 
         if broker_deals:
@@ -189,6 +198,240 @@ class DomainBroker:
             self.logger.error("Run failed: %s", e, exc_info=True)
         finally:
             await self.db.close()
+
+    # ------------------------------------------------------------------
+    # Safe Trading Pipeline (No Bank Account)
+    # ------------------------------------------------------------------
+
+    async def setup_wallet(self) -> dict:
+        """
+        Step 1: Create crypto wallet for receiving payments.
+        No bank account needed.
+        """
+        wallet = self.wallet.get_primary_wallet()
+        if not wallet:
+            wallet = self.wallet.create_wallet(
+                wallet_type=settings.wallet_type,
+                chain=settings.wallet_chain,
+                notes="Primary wallet for domain trading",
+            )
+            self.logger.info(
+                "Created %s wallet on %s: %s",
+                wallet.wallet_type,
+                wallet.chain,
+                wallet.address[:10] + "...",
+            )
+        return self.wallet.get_status()
+
+    async def find_domain(self, niche: str = "ai") -> dict:
+        """
+        Step 2: Find a domain to flip.
+        Uses the existing domain discovery pipeline.
+        """
+        domains = await self.collect_all()
+        if not domains:
+            return {"error": "No domains found"}
+
+        analyzed = await self.analyze_all(domains)
+        if not analyzed:
+            return {"error": "No domains passed analysis"}
+
+        # Return top domain
+        best = analyzed[0]
+        return {
+            "domain": best["domain_name"],
+            "price": best.get("price"),
+            "score": best.get("final_score"),
+            "grade": best.get("opportunity_grade"),
+            "estimated_value": best.get("estimated_value"),
+            "commission": best.get("commission_amount"),
+        }
+
+    async def verify_domain(self, domain: str) -> dict:
+        """
+        Step 3: Verify domain ownership.
+        Confirms the seller actually owns the domain.
+        """
+        result = await self.verifier.verify_ownership(domain)
+        return {
+            "domain": domain,
+            "verified": result.verified,
+            "confidence": result.confidence,
+            "registrar": result.registrar,
+            "registrant": result.registrant_name,
+            "registration_date": result.registration_date,
+            "expiration_date": result.expiration_date,
+            "risk_flags": result.risk_flags,
+            "method": result.verification_method,
+        }
+
+    async def create_escrow_deal(
+        self,
+        domain: str,
+        buyer_address: str,
+        seller_address: str,
+        amount_usdc: float,
+    ) -> dict:
+        """
+        Step 4: Create escrow deal.
+        Buyer deposits USDC, seller transfers domain.
+        """
+        deal = await self.escrow.create_escrow(
+            domain=domain,
+            buyer_address=buyer_address,
+            seller_address=seller_address,
+            amount_usdc=amount_usdc,
+            chain=settings.escrow_chain,
+        )
+        wallet = self.wallet.get_primary_wallet()
+        return {
+            "escrow_id": deal.escrow_id[:8],
+            "domain": domain,
+            "amount_usdc": amount_usdc,
+            "status": deal.status,
+            "deposit_address": wallet.address if wallet else "N/A",
+            "instructions": (
+                f"Buyer: Send {amount_usdc} USDC to escrow contract.\n"
+                f"Then seller transfers domain.\n"
+                f"Escrow releases funds after buyer confirms receipt."
+            ),
+        }
+
+    async def transfer_domain(
+        self,
+        domain: str,
+        from_registrar: str,
+        to_registrar: str,
+    ) -> dict:
+        """
+        Step 5/6: Transfer domain from seller to buyer.
+        """
+        record = await self.transfer.initiate_transfer(
+            domain=domain,
+            from_registrar=from_registrar,
+            to_registrar=to_registrar,
+            from_account="seller",
+            to_account="buyer",
+        )
+
+        guide = self.transfer.get_transfer_guide(domain, from_registrar)
+
+        return {
+            "transfer_id": record.transfer_id[:8],
+            "domain": domain,
+            "status": record.status,
+            "transfer_guide": guide,
+            "next_steps": [
+                "1. Seller unlocks domain at registrar",
+                "2. Seller gets EPP/authorization code",
+                "3. Seller shares code with buyer",
+                "4. Buyer initiates transfer at their registrar",
+                "5. Wait 5-7 business days for completion",
+            ],
+        }
+
+    async def cashout_profits(self, amount_usdc: float) -> dict:
+        """
+        Step 8: Convert USDC to local currency via P2P.
+        No bank account needed for P2P trades.
+        """
+        order = await self.cashout.create_cashout_order(
+            amount_usdc=amount_usdc,
+            method=settings.cashout_method,
+            currency=settings.cashout_currency,
+            payment_method=settings.cashout_payment_method,
+        )
+
+        rate = await self.cashout.get_p2p_rate(
+            method=settings.cashout_method,
+            currency=settings.cashout_currency,
+        )
+
+        guide = self.cashout.get_cashout_guide()
+
+        return {
+            "order_id": order.order_id[:8],
+            "amount_usdc": amount_usdc,
+            "method": settings.cashout_method,
+            "currency": settings.cashout_currency,
+            "rate": rate,
+            "guide": guide.get(settings.cashout_method, {}),
+            "next_steps": [
+                f"1. Go to {settings.cashout_method.replace('_', ' ').title()}",
+                f"2. Create sell order for {amount_usdc} USDC",
+                f"3. Set payment method: {settings.cashout_payment_method}",
+                "4. Wait for buyer",
+                "5. Confirm payment received",
+                "6. Release USDC to buyer",
+            ],
+        }
+
+    async def run_safe_trading_pipeline(self, domain: str, price_usd: float) -> dict:
+        """
+        Run the complete safe trading workflow:
+        1. Setup wallet
+        2. Verify domain ownership
+        3. Create escrow deal
+        4. Guide domain transfer
+        5. Confirm and release
+        6. Cashout profits
+        """
+        self.logger.info("=" * 50)
+        self.logger.info("SAFE TRADING PIPELINE: %s", domain)
+        self.logger.info("=" * 50)
+
+        results = {}
+
+        # Step 1: Wallet
+        self.logger.info("Step 1: Setting up wallet...")
+        wallet_status = await self.setup_wallet()
+        results["wallet"] = wallet_status
+
+        # Step 2: Verify
+        self.logger.info("Step 2: Verifying domain ownership...")
+        verification = await self.verify_domain(domain)
+        results["verification"] = verification
+
+        if not verification.get("verified"):
+            self.logger.warning(
+                "Domain verification failed (confidence: %.2f). Proceed with caution.",
+                verification.get("confidence", 0),
+            )
+
+        # Step 3: Escrow
+        self.logger.info("Step 3: Creating escrow deal...")
+        wallet = self.wallet.get_primary_wallet()
+        escrow_deal = await self.create_escrow_deal(
+            domain=domain,
+            buyer_address="BUYER_ADDRESS_HERE",
+            seller_address=wallet.address if wallet else "SELLER_ADDRESS_HERE",
+            amount_usdc=price_usd,
+        )
+        results["escrow"] = escrow_deal
+
+        # Step 4: Transfer guide
+        self.logger.info("Step 4: Domain transfer guide...")
+        transfer_guide = await self.transfer_domain(
+            domain=domain,
+            from_registrar=verification.get("registrar", "unknown"),
+            to_registrar=settings.preferred_registrar,
+        )
+        results["transfer"] = transfer_guide
+
+        self.logger.info("Safe trading pipeline completed for %s", domain)
+        return results
+
+    async def get_trading_status(self) -> dict:
+        """Get status of all trading components."""
+        return {
+            "wallet": self.wallet.get_status(),
+            "escrow": self.escrow.get_status(),
+            "transfers": self.transfer.get_status(),
+            "cashout": self.cashout.get_status(),
+            "active_escrows": len(self.escrow.list_active_deals()),
+            "active_transfers": len(self.transfer.list_active_transfers()),
+            "active_cashouts": len(self.cashout.list_active_orders()),
+        }
 
 
 async def main() -> None:

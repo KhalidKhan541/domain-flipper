@@ -44,6 +44,25 @@ class Settings(BaseSettings):
     # Offline mode — skip external HTTP calls, use heuristics/optimistic defaults
     offline_mode: bool = False
 
+    # Trading — Wallet & Escrow
+    wallet_type: str = "coinbase"  # "coinbase" | "phantom" | "metamask"
+    wallet_chain: str = "base"  # "base" | "ethereum" | "solana"
+    escrow_chain: str = "base"  # chain for escrow contracts
+    escrow_timeout_hours: int = 72  # auto-refund after this many hours
+
+    # Trading — Cashout
+    cashout_method: str = "binance_p2p"  # "binance_p2p" | "paxful" | "manual"
+    cashout_currency: str = "USD"  # fiat currency for cashout
+    cashout_payment_method: str = "bank_transfer"  # "bank_transfer" | "upi" | "paypal"
+
+    # Trading — Domain Transfer
+    preferred_registrar: str = "porkbun"  # where to receive domains
+    transfer_timeout_days: int = 10  # cancel transfer if not completed
+
+    # Trading — Verification
+    min_ownership_confidence: float = 0.7  # minimum confidence to proceed
+    require_dns_check: bool = True
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

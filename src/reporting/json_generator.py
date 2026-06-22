@@ -27,6 +27,7 @@ class JSONReportGenerator:
 
         top_domains: list[dict[str, Any]] = []
         for d in domains:
+            owner_contact = d.get("owner_contact", {})
             entry = {
                 "domain_name": d.get("domain_name"),
                 "estimated_value": d.get("estimated_value"),
@@ -40,6 +41,11 @@ class JSONReportGenerator:
                         {"name": l.get("company"), "type": l.get("type")}
                         for l in (d.get("buyer_leads", {}).get("leads", []) or [])[:5]
                     ],
+                },
+                "seller": {
+                    "name": owner_contact.get("registrant_name"),
+                    "email": owner_contact.get("registrant_email"),
+                    "org": owner_contact.get("registrant_org"),
                 },
                 "category": d.get("category"),
                 "dr": d.get("dr"),

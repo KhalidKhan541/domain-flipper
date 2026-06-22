@@ -51,8 +51,8 @@ class MarkdownReportGenerator:
 
         lines.append("## Top 20 Broker Opportunities")
         lines.append("")
-        lines.append("| # | Domain | Est. Value | Commission | Buyer Leads | Broker Score | Grade |")
-        lines.append("|---|--------|------------|------------|-------------|--------------|-------|")
+        lines.append("| # | Domain | Est. Value | Commission | Buyer Leads | Broker Score | Grade | Seller |")
+        lines.append("|---|--------|------------|------------|-------------|--------------|-------|--------|")
         for i, d in enumerate(domains[:20], 1):
             name = d.get("domain_name", "unknown")
             est = d.get("estimated_value", 0) or 0
@@ -60,7 +60,8 @@ class MarkdownReportGenerator:
             leads = d.get("buyer_leads", {}).get("total_leads", 0) or 0
             bscore = d.get("broker_score", 0) or 0
             bgrade = d.get("broker_grade", "Cold") or "Cold"
-            lines.append(f"| {i} | {name} | ${est:,} | ${comm:,} | {leads} | {bscore} | {bgrade} |")
+            seller = d.get("owner_contact", {}).get("registrant_name", "N/A") or "N/A"
+            lines.append(f"| {i} | {name} | ${est:,} | ${comm:,} | {leads} | {bscore} | {bgrade} | {seller} |")
         lines.append("")
 
         lines.append("## Domain Details")
@@ -85,6 +86,17 @@ class MarkdownReportGenerator:
                 for lead in leads_list[:5]:
                     lines.append(f"- {lead.get('company', 'Unknown')} ({lead.get('type', 'unknown')}) — {lead.get('reason', '')}")
             lines.append("")
+
+            owner_contact = d.get("owner_contact", {})
+            seller_name = owner_contact.get("registrant_name")
+            seller_email = owner_contact.get("registrant_email")
+            if seller_name or seller_email:
+                lines.append("**Seller:**")
+                if seller_name:
+                    lines.append(f"- Name: {seller_name}")
+                if seller_email:
+                    lines.append(f"- Email: {seller_email}")
+                lines.append("")
 
             lines.append("**Broker metrics:**")
             est = d.get("estimated_value", 0) or 0

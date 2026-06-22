@@ -12,3 +12,6 @@ aiosqlite>=0.20.0
 streamlit>=1.36.0
 pandas>=2.0.0
 whois>=0.9.0
+web3>=6.0.0
+solana>=0.30.0
+base58>=2.1.0
