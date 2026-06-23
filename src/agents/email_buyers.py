@@ -1,4 +1,4 @@
-"""Agent 8: Email Buyers — contacts people looking to buy domains, offers them domains."""
+"""Agent 8: Email Buyers — contacts people looking to buy domains, offers them matching expiring domains."""
 
 from __future__ import annotations
 
@@ -30,6 +30,26 @@ khalid.khan46571@gmail.com
 """
 
 
+def _match_domains_to_needs(buyer_needs: list[str], available_domains: list[dict]) -> list[dict]:
+    """Match buyer needs to available expiring domains."""
+    matched = []
+
+    for domain in available_domains:
+        domain_categories = domain.get("categories", [])
+        domain_name = domain.get("domain_name", "")
+
+        # Check if domain matches any buyer need
+        for need in buyer_needs:
+            if need in domain_categories:
+                matched.append(domain)
+                break
+
+    # Sort by estimated value (higher = better match)
+    matched.sort(key=lambda x: x.get("estimated_value", 0), reverse=True)
+
+    return matched[:5]
+
+
 def _send_email(to_email: str, subject: str, body: str) -> bool:
     if not settings.smtp_host or not settings.smtp_user or not settings.smtp_pass:
         return False
@@ -55,71 +75,86 @@ def _send_email(to_email: str, subject: str, body: str) -> bool:
 
 
 async def run(buyer_leads: list[dict], available_domains: list[dict], dry_run: bool = False) -> dict:
-    """Contact buyers who are looking for domains, offer them available domains."""
+    """Contact buyers who are looking for domains, offer them matching expiring domains."""
     logger = setup_logger("BuyerOutreach")
     sent, skipped, failed = [], [], []
-    sent_emails: set[str] = set()
-
-    # Build domain suggestions map
-    domain_suggestions: dict[str, list[str]] = {}
-    for d in available_domains:
-        name = d.get("domain_name", "")
-        tld = d.get("tld", "")
-        # Index by TLD for matching
-        if tld not in domain_suggestions:
-            domain_suggestions[tld] = []
-        domain_suggestions[tld].append(name)
 
     for lead in buyer_leads:
         author = lead.get("author", "")
         source = lead.get("source", "")
         title = lead.get("title", "")
-        mentioned = lead.get("mentioned_domains", [])
+        buyer_needs = lead.get("buyer_needs", [])
+        mentioned_domains = lead.get("mentioned_domains", [])
+        suggested_domains = lead.get("suggested_domains", [])
 
-        # Try to find matching domains
-        matching_domains = []
-        for md in mentioned:
-            tld = md.split(".")[-1] if "." in md else ""
-            if tld in domain_suggestions:
-                matching_domains.extend(domain_suggestions[tld][:3])
+        # Find matching domains based on buyer needs
+        matching_domains = _match_domains_to_needs(buyer_needs, available_domains)
+
+        # If no category match, try TLD match
+        if not matching_domains and mentioned_domains:
+            for md in mentioned_domains:
+                tld = md.split(".")[-1] if "." in md else ""
+                for domain in available_domains:
+                    if domain.get("tld") == tld and domain not in matching_domains:
+                        matching_domains.append(domain)
+                        if len(matching_domains) >= 3:
+                            break
+
+        # If still no match, use suggested domains from buyer needs
+        if not matching_domains and suggested_domains:
+            for sd in suggested_domains:
+                for domain in available_domains:
+                    if domain.get("domain_name") == sd and domain not in matching_domains:
+                        matching_domains.append(domain)
+                        if len(matching_domains) >= 3:
+                            break
 
         if not matching_domains:
-            # Suggest from general pool
-            for tld_domains in domain_suggestions.values():
-                matching_domains.extend(tld_domains[:2])
-                if len(matching_domains) >= 3:
-                    break
-
-        if not matching_domains:
-            skipped.append({"author": author, "reason": "no_matching_domains"})
+            skipped.append({"author": author, "reason": "no_matching_domains", "needs": buyer_needs})
             continue
 
-        personalized = f"I have domains like {', '.join(matching_domains[:3])} that might interest you."
+        # Build personalized message
+        domain_list = ", ".join([d["domain_name"] for d in matching_domains[:3]])
+        estimated_values = [d.get("estimated_value", 0) for d in matching_domains[:3]]
+        avg_value = sum(estimated_values) / len(estimated_values) if estimated_values else 0
 
-        subject = f"Premium Domains for Your Project"
+        # Create personalized line based on buyer needs
+        if buyer_needs:
+            need_str = " and ".join(buyer_needs[:2])
+            personalized = f"Based on your interest in {need_str}, I have domains like {domain_list} that would be perfect for your project."
+        else:
+            personalized = f"I have domains like {domain_list} that might interest you."
+
+        # Add value proposition
+        personalized += f" These are premium domains with estimated values of ${avg_value:.0f}+."
+
+        subject = f"Premium Domains for Your {buyer_needs[0].title() if buyer_needs else 'Project'}"
         body = BUYER_TEMPLATE.format(
             author=author,
             source=source,
             personalized_line=personalized,
         )
 
-        # Note: Reddit/HN users don't have public emails
-        # We'd need to DM them on the platform
-        # For now, log the outreach
-        if dry_run:
-            logger.info("[DRY RUN] Would DM buyer: %s on %s", author, source)
-            sent.append({"author": author, "source": source, "domains": matching_domains[:3], "dry_run": True})
-            continue
-
-        # Save for manual outreach
+        # Save for manual outreach (Reddit/HN users don't have public emails)
         sent.append({
             "author": author,
             "source": source,
             "title": title,
             "platform_url": lead.get("url", ""),
-            "suggested_domains": matching_domains[:3],
+            "buyer_needs": buyer_needs,
+            "matching_domains": [
+                {
+                    "domain": d["domain_name"],
+                    "estimated_value": d.get("estimated_value", 0),
+                    "categories": d.get("categories", []),
+                    "registration_cost": d.get("price", 10),
+                }
+                for d in matching_domains[:3]
+            ],
+            "suggested_domains": [d["domain_name"] for d in matching_domains[:3]],
             "message": body,
             "status": "pending_manual_outreach",
+            "profit_potential": avg_value * 0.7,  # 70% profit after registration cost
         })
 
     # Save outreach plan
@@ -128,5 +163,9 @@ async def run(buyer_leads: list[dict], available_domains: list[dict], dry_run: b
     with open(plan_path, "w") as f:
         json.dump(sent, f, indent=2)
 
+    # Log summary
+    total_profit = sum(s.get("profit_potential", 0) for s in sent)
     logger.info("Buyer outreach: %d leads prepared, %d skipped", len(sent), len(skipped))
+    logger.info("Estimated total profit potential: $%.0f", total_profit)
+
     return {"prepared": sent, "skipped": skipped}
