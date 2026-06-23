@@ -32,7 +32,7 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
         )
         logger.removeHandler(handler)
         logger.addHandler(rich_handler)
-    except ImportError:
+    except (ImportError, UnicodeEncodeError):
         pass
 
     return logger

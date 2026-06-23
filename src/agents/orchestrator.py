@@ -1,4 +1,4 @@
-"""Main orchestrator — runs all 8 subagents in parallel."""
+"""Main orchestrator — runs 7 subagents in parallel for domain brokering."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from src.agents import (
-    expiring_scout, marketplace_monitor, forsale_finder,
+    expiring_scout, marketplace_playwright, forsale_finder,
     buyer_finder_reddit, buyer_finder_hn,
     seller_contact, email_sellers, email_buyers,
 )
@@ -16,12 +16,12 @@ from src.utils import setup_logger
 
 
 async def run_pipeline(dry_run: bool = False) -> dict:
-    """Run the full 8-agent pipeline."""
+    """Run the full 7-agent pipeline."""
     logger = setup_logger("PipelineOrchestrator")
     start = datetime.now(timezone.utc)
 
     logger.info("=" * 60)
-    logger.info("STARTING 8-AGENT DOMAIN BROKER PIPELINE")
+    logger.info("STARTING 7-AGENT DOMAIN BROKER PIPELINE")
     logger.info("=" * 60)
 
     # ============================================================
@@ -30,7 +30,7 @@ async def run_pipeline(dry_run: bool = False) -> dict:
     logger.info("Step 1/5: Running 5 discovery agents in parallel...")
 
     expiring_task = expiring_scout.run()
-    marketplace_task = marketplace_monitor.run()
+    marketplace_task = marketplace_playwright.run()
     forsale_task = forsale_finder.run()
     reddit_task = buyer_finder_reddit.run()
     hn_task = buyer_finder_hn.run()

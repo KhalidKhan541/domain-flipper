@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 import httpx
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 
 from src.utils import setup_logger
 
@@ -16,130 +18,264 @@ EXCLUDE = {
     "github.com", "youtube.com", "twitter.com", "tiktok.com", "instagram.com",
     "linkedin.com", "reddit.com", "netflix.com", "cloudflare.com", "godaddy.com",
     "namecheap.com", "porkbun.com", "stripe.com", "paypal.com", "wikipedia.org",
-    "flippa.com", "sedo.com", "afternic.com", "dan.com",
+    "flippa.com", "sedo.com", "afternic.com", "dan.com", "hugedomains.com",
     "googleapis.com", "gstatic.com", "cloudfront.net", "googletagmanager.com",
+    "edgesuite.net", "akamai.net", "akamai.com", "edgecast.net",
+    "yahoo.com", "bing.com", "msn.com", "aol.com", "ask.com",
+    "walmart.com", "target.com", "bestbuy.com", "costco.com", "homedepot.com",
+    "craigslist.org", "ebay.com", "etsy.com", "alibaba.com", "aliexpress.com",
+    "wordpress.com", "wix.com", "squarespace.com", "shopify.com", "weebly.com",
+    "godaddyhosting.com", "hostgator.com", "bluehost.com", "siteground.com",
 }
+
+
+async def _scrape_expireddomains_httpx(client: httpx.AsyncClient) -> list[dict]:
+    """Scrape expireddomains.net via HTTP."""
+    logger = setup_logger("ExpiredDomainsHTTPX")
+    results: list[dict] = []
+
+    # Expiring domains
+    try:
+        resp = await client.get("https://www.expireddomains.net/expiring-domains/")
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for table in soup.find_all("table"):
+                headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+                if not any("domain" in h for h in headers):
+                    continue
+                for row in table.find_all("tr"):
+                    cells = row.find_all("td")
+                    if len(cells) < 2:
+                        continue
+                    first_cell = cells[0]
+                    link = first_cell.find("a")
+                    if link:
+                        text = link.get_text(strip=True).lower()
+                        if DOMAIN_RE.match(text) and text not in EXCLUDE:
+                            price = 0
+                            for cell in cells[1:]:
+                                price_text = cell.get_text(strip=True)
+                                match = re.search(r"\$?([\d,]+)", price_text)
+                                if match:
+                                    price = float(match.group(1).replace(",", ""))
+                                    break
+                            results.append({
+                                "domain_name": text, "price": price,
+                                "source": "expireddomains_expiring",
+                                "tld": text.split(".")[-1], "status": "expiring",
+                                "dr": 0, "referring_domains": 0, "domain_age": 0,
+                            })
+            logger.info("Expireddomains.net expiring: %d domains", len(results))
+    except Exception as e:
+        logger.warning("Expireddomains.net expiring failed: %s", e)
+
+    # Dropped domains
+    try:
+        resp = await client.get("https://www.expireddomains.net/domains/dropped/")
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for table in soup.find_all("table"):
+                for row in table.find_all("tr"):
+                    cells = row.find_all("td")
+                    if len(cells) < 2:
+                        continue
+                    first_cell = cells[0]
+                    link = first_cell.find("a")
+                    if link:
+                        text = link.get_text(strip=True).lower()
+                        if DOMAIN_RE.match(text) and text not in EXCLUDE:
+                            results.append({
+                                "domain_name": text, "price": 0,
+                                "source": "expireddomains_dropped",
+                                "tld": text.split(".")[-1], "status": "dropped",
+                                "dr": 0, "referring_domains": 0, "domain_age": 0,
+                            })
+            logger.info("Expireddomains.net dropped: %d domains", len(results))
+    except Exception as e:
+        logger.warning("Expireddomains.net dropped failed: %s", e)
+
+    return results
+
+
+async def _scrape_snapnames_playwright() -> list[dict]:
+    """Scrape SnapNames with Playwright (handles JS rendering)."""
+    logger = setup_logger("SnapNamesPlaywright")
+    results: list[dict] = []
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            )
+            page = await context.new_page()
+
+            await page.goto("https://www.snapnames.com/", wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+            content = await page.content()
+
+            # Extract domains from page
+            found_domains = re.findall(
+                r'\b([a-z0-9-]{2,63}\.(?:com|io|ai|co|net|org|dev|app))\b',
+                text.lower()
+            )
+
+            # Extract prices
+            prices = re.findall(r'\$[\d,]+(?:\.\d{2})?', text)
+
+            seen = set()
+            for i, domain in enumerate(found_domains):
+                if domain in EXCLUDE or domain in seen:
+                    continue
+                if not DOMAIN_RE.match(domain):
+                    continue
+                seen.add(domain)
+
+                price = 0
+                if i < len(prices):
+                    price_str = prices[i].replace("$", "").replace(",", "")
+                    try:
+                        price = float(price_str)
+                    except ValueError:
+                        pass
+
+                results.append({
+                    "domain_name": domain,
+                    "price": price,
+                    "source": "snapnames",
+                    "tld": domain.split(".")[-1],
+                    "status": "expiring",
+                    "dr": 0, "referring_domains": 0, "domain_age": 0,
+                })
+
+            await browser.close()
+
+        logger.info("SnapNames Playwright: %d domains found", len(results))
+    except Exception as e:
+        logger.warning("SnapNames Playwright failed: %s", e)
+
+    return results
+
+
+async def _scrape_namejet_httpx(client: httpx.AsyncClient) -> list[dict]:
+    """Scrape NameJet via HTTP."""
+    logger = setup_logger("NameJetHTTPX")
+    results: list[dict] = []
+
+    try:
+        resp = await client.get("https://www.namejet.com/")
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for row in soup.find_all("tr"):
+                cells = row.find_all("td")
+                if len(cells) >= 2:
+                    link = cells[0].find("a")
+                    if link:
+                        text = link.get_text(strip=True).lower()
+                        if DOMAIN_RE.match(text) and text not in EXCLUDE:
+                            price_text = cells[1].get_text(strip=True) if len(cells) > 1 else ""
+                            match = re.search(r"\$?([\d,]+)", price_text)
+                            price = float(match.group(1).replace(",", "")) if match else 0
+                            results.append({
+                                "domain_name": text, "price": price,
+                                "source": "namejet", "tld": text.split(".")[-1],
+                                "status": "expiring", "dr": 0, "referring_domains": 0, "domain_age": 0,
+                            })
+            logger.info("NameJet: %d domains", len(results))
+    except Exception as e:
+        logger.warning("NameJet failed: %s", e)
+
+    return results
+
+
+async def _scrape_godaddy_playwright() -> list[dict]:
+    """Scrape GoDaddy Auctions with Playwright."""
+    logger = setup_logger("GoDaddyPlaywright")
+    results: list[dict] = []
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            )
+            page = await context.new_page()
+
+            await page.goto("https://auctions.godaddy.com/trpSearchResults.aspx?t=22&k=&page=1", wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(3000)
+
+            text = await page.evaluate("() => document.body ? document.body.innerText : ''")
+
+            found_domains = re.findall(
+                r'\b([a-z0-9-]{2,63}\.(?:com|io|ai|co|net|org|dev|app))\b',
+                text.lower()
+            )
+
+            prices = re.findall(r'\$[\d,]+(?:\.\d{2})?', text)
+
+            seen = set()
+            for i, domain in enumerate(found_domains):
+                if domain in EXCLUDE or domain in seen:
+                    continue
+                if not DOMAIN_RE.match(domain):
+                    continue
+                seen.add(domain)
+
+                price = 0
+                if i < len(prices):
+                    price_str = prices[i].replace("$", "").replace(",", "")
+                    try:
+                        price = float(price_str)
+                    except ValueError:
+                        pass
+
+                results.append({
+                    "domain_name": domain,
+                    "price": price,
+                    "source": "godaddy_auctions",
+                    "tld": domain.split(".")[-1],
+                    "status": "auction",
+                    "dr": 0, "referring_domains": 0, "domain_age": 0,
+                })
+
+            await browser.close()
+
+        logger.info("GoDaddy Playwright: %d domains found", len(results))
+    except Exception as e:
+        logger.warning("GoDaddy Playwright failed: %s", e)
+
+    return results
 
 
 async def run() -> list[dict]:
     """Scrape free sources for expiring domains."""
     logger = setup_logger("ExpiringDomainScout")
-    results: list[dict] = []
 
+    # Run HTTPX and Playwright scrapers in parallel
     async with httpx.AsyncClient(
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"},
         follow_redirects=True, timeout=30.0,
     ) as client:
-        # Source 1: Expireddomains.net expiring list
-        try:
-            resp = await client.get("https://www.expireddomains.net/expiring-domains/")
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                for table in soup.find_all("table"):
-                    headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
-                    if not any("domain" in h for h in headers):
-                        continue
-                    for row in table.find_all("tr"):
-                        cells = row.find_all("td")
-                        if len(cells) < 2:
-                            continue
-                        first_cell = cells[0]
-                        link = first_cell.find("a")
-                        if link:
-                            text = link.get_text(strip=True).lower()
-                            if DOMAIN_RE.match(text) and text not in EXCLUDE:
-                                # Try to extract price/bid from other cells
-                                price = 0
-                                for cell in cells[1:]:
-                                    price_text = cell.get_text(strip=True)
-                                    match = re.search(r"\$?([\d,]+)", price_text)
-                                    if match:
-                                        price = float(match.group(1).replace(",", ""))
-                                        break
-                                results.append({
-                                    "domain_name": text, "price": price,
-                                    "source": "expireddomains_expiring",
-                                    "tld": text.split(".")[-1], "status": "expiring",
-                                    "dr": 0, "referring_domains": 0, "domain_age": 0,
-                                })
-                logger.info("Expireddomains.net expiring: %d domains", len(results))
-        except Exception as e:
-            logger.warning("Expireddomains.net failed: %s", e)
+        results = await asyncio.gather(
+            _scrape_expireddomains_httpx(client),
+            _scrape_snapnames_playwright(),
+            _scrape_namejet_httpx(client),
+            _scrape_godaddy_playwright(),
+            return_exceptions=True,
+        )
 
-        # Source 2: Expireddomains.net dropped list
-        try:
-            resp = await client.get("https://www.expireddomains.net/domains/dropped/")
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                for table in soup.find_all("table"):
-                    for row in table.find_all("tr"):
-                        cells = row.find_all("td")
-                        if len(cells) < 2:
-                            continue
-                        first_cell = cells[0]
-                        link = first_cell.find("a")
-                        if link:
-                            text = link.get_text(strip=True).lower()
-                            if DOMAIN_RE.match(text) and text not in EXCLUDE:
-                                results.append({
-                                    "domain_name": text, "price": 0,
-                                    "source": "expireddomains_dropped",
-                                    "tld": text.split(".")[-1], "status": "dropped",
-                                    "dr": 0, "referring_domains": 0, "domain_age": 0,
-                                })
-                logger.info("Expireddomains.net dropped: %d domains", len(results))
-        except Exception as e:
-            logger.warning("Dropped list failed: %s", e)
+    # Merge results
+    all_domains: list[dict] = []
+    seen: set[str] = set()
+    for result in results:
+        if isinstance(result, list):
+            for d in result:
+                name = d.get("domain_name", "")
+                if name and name not in seen:
+                    seen.add(name)
+                    all_domains.append(d)
 
-        # Source 3: NameJet last chance (HTML scraping)
-        try:
-            resp = await client.get("https://www.namejet.com/")
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                for row in soup.find_all("tr"):
-                    cells = row.find_all("td")
-                    if len(cells) >= 2:
-                        link = cells[0].find("a")
-                        if link:
-                            text = link.get_text(strip=True).lower()
-                            if DOMAIN_RE.match(text) and text not in EXCLUDE:
-                                price_text = cells[1].get_text(strip=True) if len(cells) > 1 else ""
-                                match = re.search(r"\$?([\d,]+)", price_text)
-                                price = float(match.group(1).replace(",", "")) if match else 0
-                                results.append({
-                                    "domain_name": text, "price": price,
-                                    "source": "namejet", "tld": text.split(".")[-1],
-                                    "status": "expiring", "dr": 0, "referring_domains": 0, "domain_age": 0,
-                                })
-                logger.info("NameJet: %d domains", len(results))
-        except Exception as e:
-            logger.warning("NameJet failed: %s", e)
-
-        # Source 4: GoDaddy Auctions HTML
-        try:
-            resp = await client.get("https://auctions.godaddy.com/")
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, "html.parser")
-                for row in soup.find_all("tr"):
-                    cells = row.find_all("td")
-                    if len(cells) >= 2:
-                        link = cells[0].find("a")
-                        if link:
-                            text = link.get_text(strip=True).lower()
-                            if DOMAIN_RE.match(text) and text not in EXCLUDE:
-                                price_text = cells[1].get_text(strip=True)
-                                match = re.search(r"\$?([\d,]+)", price_text)
-                                price = float(match.group(1).replace(",", "")) if match else 0
-                                results.append({
-                                    "domain_name": text, "price": price,
-                                    "source": "godaddy", "tld": text.split(".")[-1],
-                                    "status": "expiring", "dr": 0, "referring_domains": 0, "domain_age": 0,
-                                })
-                logger.info("GoDaddy: %d domains", len(results))
-        except Exception as e:
-            logger.warning("GoDaddy failed: %s", e)
-
-    unique = {d["domain_name"]: d for d in results}
-    final = list(unique.values())
-    logger.info("Expiring scout found %d unique domains", len(final))
-    return final
+    logger.info("Expiring scout found %d unique domains", len(all_domains))
+    return all_domains
