@@ -1,4 +1,4 @@
-"""Main orchestrator — runs all 6 subagents in parallel."""
+"""Main orchestrator — runs all 8 subagents in parallel."""
 
 from __future__ import annotations
 
@@ -7,135 +7,139 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.agents import feed_scraper, marketplace_scraper, forsale_finder
-from src.agents import seller_extractor, domain_analyzer, email_outreach
+from src.agents import (
+    expiring_scout, marketplace_monitor, forsale_finder,
+    buyer_finder_reddit, buyer_finder_hn,
+    seller_contact, email_sellers, email_buyers,
+)
 from src.utils import setup_logger
 
 
 async def run_pipeline(dry_run: bool = False) -> dict:
-    """Run the full 6-agent pipeline."""
+    """Run the full 8-agent pipeline."""
     logger = setup_logger("PipelineOrchestrator")
     start = datetime.now(timezone.utc)
 
     logger.info("=" * 60)
-    logger.info("STARTING 6-AGENT DOMAIN BROKER PIPELINE")
+    logger.info("STARTING 8-AGENT DOMAIN BROKER PIPELINE")
     logger.info("=" * 60)
 
     # ============================================================
-    # STEP 1: Run feed scraper + marketplace scraper + for-sale finder IN PARALLEL
+    # STEP 1: Run 5 discovery agents IN PARALLEL
     # ============================================================
-    logger.info("Step 1/4: Running 3 discovery agents in parallel...")
+    logger.info("Step 1/5: Running 5 discovery agents in parallel...")
 
-    feeds_task = feed_scraper.run()
-    marketplace_task = marketplace_scraper.run()
+    expiring_task = expiring_scout.run()
+    marketplace_task = marketplace_monitor.run()
     forsale_task = forsale_finder.run()
+    reddit_task = buyer_finder_reddit.run()
+    hn_task = buyer_finder_hn.run()
 
-    feed_results, marketplace_results, forsale_results = await asyncio.gather(
-        feeds_task, marketplace_task, forsale_task,
+    expiring, marketplace, forsale, reddit, hn = await asyncio.gather(
+        expiring_task, marketplace_task, forsale_task, reddit_task, hn_task,
         return_exceptions=True,
     )
 
-    # Handle exceptions
-    feed_domains = feed_results if isinstance(feed_results, list) else []
-    marketplace_domains = marketplace_results if isinstance(marketplace_results, list) else []
-    forsale_domains = forsale_results if isinstance(forsale_results, list) else []
+    expiring_domains = expiring if isinstance(expiring, list) else []
+    marketplace_domains = marketplace if isinstance(marketplace, list) else []
+    forsale_domains = forsale if isinstance(forsale, list) else []
+    reddit_buyers = reddit if isinstance(reddit, list) else []
+    hn_data = hn if isinstance(hn, dict) else {}
+    hn_buyers = hn_data.get("buyers", [])
+    hn_auctions = hn_data.get("auctions", [])
 
-    logger.info(
-        "Discovery complete: %d feed + %d marketplace + %d for-sale = %d total",
-        len(feed_domains), len(marketplace_domains), len(forsale_domains),
-        len(feed_domains) + len(marketplace_domains) + len(forsale_domains),
-    )
-
-    # Merge all discovered domains
-    all_domains: list[dict] = []
+    # Merge all domains for sale
+    all_for_sale: list[dict] = []
     seen: set[str] = set()
-
-    for d in feed_domains + marketplace_domains + forsale_domains:
+    for d in marketplace_domains + forsale_domains + hn_auctions:
         name = d.get("domain_name", "")
         if name and name not in seen:
             seen.add(name)
-            all_domains.append(d)
+            all_for_sale.append(d)
 
-    logger.info("Merged to %d unique domains", len(all_domains))
-
-    if not all_domains:
-        logger.warning("No domains found, aborting")
-        return {"error": "no_domains", "domains": 0}
+    logger.info(
+        "Discovery: %d expiring + %d marketplace + %d for-sale + %d hn-auctions = %d for-sale domains",
+        len(expiring_domains), len(marketplace_domains), len(forsale_domains), len(hn_auctions), len(all_for_sale),
+    )
+    logger.info(
+        "Buyers: %d reddit + %d hn = %d total leads",
+        len(reddit_buyers), len(hn_buyers), len(reddit_buyers) + len(hn_buyers),
+    )
 
     # ============================================================
-    # STEP 2: Extract seller contacts for for-sale domains + top marketplace domains
+    # STEP 2: Extract seller contacts for for-sale domains
     # ============================================================
-    logger.info("Step 2/4: Extracting seller contacts...")
+    logger.info("Step 2/5: Extracting seller contacts...")
 
-    # Prioritize domains that have for_sale flag or marketplace listings
-    domains_needing_contacts = []
-    for d in all_domains:
-        if d.get("for_sale") or d.get("source") in ("flippa", "afternic", "dan"):
-            domains_needing_contacts.append(d["domain_name"])
-        elif d.get("seller_emails"):
-            continue  # Already has contact info
+    domains_to_check = [d["domain_name"] for d in all_for_sale[:30]]
+    # Also check some expiring domains
+    for d in expiring_domains[:20]:
+        if d["domain_name"] not in domains_to_check:
+            domains_to_check.append(d["domain_name"])
 
-    # Also add top feed domains
-    for d in feed_domains[:20]:
-        if d["domain_name"] not in domains_needing_contacts:
-            domains_needing_contacts.append(d["domain_name"])
-
-    # Limit to 50 to avoid rate limiting
-    domains_needing_contacts = domains_needing_contacts[:50]
-
-    if domains_needing_contacts:
-        contact_results = await seller_extractor.run(domains_needing_contacts)
-        # Merge contact info back into domain dicts
+    if domains_to_check:
+        contact_results = await seller_contact.run(domains_to_check[:50])
         contact_map = {c["domain_name"]: c for c in contact_results}
-        for d in all_domains:
+        for d in all_for_sale:
+            if d["domain_name"] in contact_map:
+                d.update(contact_map[d["domain_name"]])
+        for d in expiring_domains:
             if d["domain_name"] in contact_map:
                 d.update(contact_map[d["domain_name"]])
 
     # ============================================================
-    # STEP 3: Analyze all domains (HTTP status, value estimation)
+    # STEP 3: Contact sellers — offer to broker
     # ============================================================
-    logger.info("Step 3/4: Analyzing domains...")
-    analyzed = await domain_analyzer.run(all_domains)
+    logger.info("Step 3/5: Contacting sellers...")
+
+    sellers_to_contact = [d for d in all_for_sale if d.get("seller_emails")]
+    sellers_to_contact.extend([d for d in expiring_domains if d.get("seller_emails")])
+
+    if sellers_to_contact:
+        seller_outreach = await email_sellers.run(sellers_to_contact[:20], dry_run=dry_run)
+    else:
+        seller_outreach = {"sent": [], "skipped": [], "failed": []}
 
     # ============================================================
-    # STEP 4: Send emails to sellers
+    # STEP 4: Contact buyers — offer domains
     # ============================================================
-    logger.info("Step 4/4: Sending outreach emails...")
-    outreach_result = await email_outreach.run(analyzed, dry_run=dry_run)
+    logger.info("Step 4/5: Preparing buyer outreach...")
+
+    all_buyers = reddit_buyers + hn_buyers
+    buyer_outreach = await email_buyers.run(all_buyers, all_for_sale, dry_run=dry_run)
 
     # ============================================================
-    # GENERATE REPORT
+    # STEP 5: Generate report
     # ============================================================
+    logger.info("Step 5/5: Generating report...")
+
     elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-
-    # Save full report
     report_path = Path("data/reports")
     report_path.mkdir(parents=True, exist_ok=True)
     date_str = datetime.now().strftime("%Y-%m-%d")
 
-    # JSON report
     json_report = {
         "date": date_str,
         "elapsed_seconds": round(elapsed, 1),
         "summary": {
-            "feed_domains": len(feed_domains),
+            "expiring_domains": len(expiring_domains),
             "marketplace_domains": len(marketplace_domains),
             "forsale_domains": len(forsale_domains),
-            "total_unique": len(all_domains),
-            "emails_sent": len(outreach_result.get("sent", [])),
-            "emails_skipped": len(outreach_result.get("skipped", [])),
-            "emails_failed": len(outreach_result.get("failed", [])),
+            "hn_auctions": len(hn_auctions),
+            "total_for_sale": len(all_for_sale),
+            "reddit_buyers": len(reddit_buyers),
+            "hn_buyers": len(hn_buyers),
+            "total_buyers": len(all_buyers),
+            "seller_outreach_sent": len(seller_outreach.get("sent", [])),
+            "buyer_outreach_prepared": len(buyer_outreach.get("prepared", [])),
         },
-        "top_domains": [
-            {
-                "domain": d["domain_name"],
-                "estimated_value": d.get("estimated_value", 0),
-                "commission": d.get("commission", 0),
-                "seller_emails": d.get("seller_emails", []),
-                "source": d.get("source", ""),
-                "for_sale": d.get("for_sale", False),
-            }
-            for d in analyzed[:20]
+        "top_for_sale_domains": [
+            {"domain": d["domain_name"], "price": d.get("price", 0), "source": d.get("source", ""), "seller_emails": d.get("seller_emails", [])}
+            for d in all_for_sale[:20]
+        ],
+        "top_buyer_leads": [
+            {"author": b.get("author", ""), "source": b.get("source", ""), "title": b.get("title", "")[:80]}
+            for b in all_buyers[:20]
         ],
     }
 
@@ -143,31 +147,31 @@ async def run_pipeline(dry_run: bool = False) -> dict:
     with open(json_path, "w") as f:
         json.dump(json_report, f, indent=2)
 
-    # Markdown report
     md_lines = [
         f"# Domain Broker Report — {date_str}",
         f"Pipeline completed in {elapsed:.1f}s",
         "",
         "## Summary",
-        f"- Feed domains: {len(feed_domains)}",
+        f"- Expiring domains found: {len(expiring_domains)}",
         f"- Marketplace domains: {len(marketplace_domains)}",
         f"- For-sale domains: {len(forsale_domains)}",
-        f"- Total unique: {len(all_domains)}",
-        f"- Emails sent: {len(outreach_result.get('sent', []))}",
-        f"- Emails skipped: {len(outreach_result.get('skipped', []))}",
-        f"- Emails failed: {len(outreach_result.get('failed', []))}",
+        f"- HN auctions: {len(hn_auctions)}",
+        f"- Reddit buyers: {len(reddit_buyers)}",
+        f"- HN buyers: {len(hn_buyers)}",
+        f"- Seller outreach sent: {len(seller_outreach.get('sent', []))}",
+        f"- Buyer outreach prepared: {len(buyer_outreach.get('prepared', []))}",
         "",
-        "## Top Domains",
-        "| Domain | Est. Value | Commission | Seller Emails | Source |",
-        "|--------|-----------|------------|---------------|--------|",
+        "## Top For-Sale Domains",
+        "| Domain | Price | Source | Seller Email |",
+        "|--------|-------|--------|--------------|",
     ]
-
-    for d in analyzed[:20]:
+    for d in all_for_sale[:15]:
         emails = ", ".join(d.get("seller_emails", [])[:2])
-        md_lines.append(
-            f"| {d['domain_name']} | ${d.get('estimated_value', 0):.0f} | "
-            f"${d.get('commission', 0):.0f} | {emails} | {d.get('source', '')} |"
-        )
+        md_lines.append(f"| {d['domain_name']} | ${d.get('price', 0):.0f} | {d.get('source', '')} | {emails} |")
+
+    md_lines.extend(["", "## Top Buyer Leads", "| Author | Source | Title |", "|--------|--------|-------|"])
+    for b in all_buyers[:15]:
+        md_lines.append(f"| {b.get('author', '')} | {b.get('source', '')} | {b.get('title', '')[:50]} |")
 
     md_path = report_path / f"pipeline_report_{date_str}.md"
     with open(md_path, "w") as f:
@@ -175,15 +179,16 @@ async def run_pipeline(dry_run: bool = False) -> dict:
 
     logger.info("=" * 60)
     logger.info("PIPELINE COMPLETE")
-    logger.info("  Domains found: %d", len(all_domains))
-    logger.info("  Emails sent: %d", len(outreach_result.get("sent", [])))
-    logger.info("  Report: %s", json_path)
+    logger.info("  For-sale domains: %d", len(all_for_sale))
+    logger.info("  Buyer leads: %d", len(all_buyers))
+    logger.info("  Seller outreach: %d sent", len(seller_outreach.get("sent", [])))
+    logger.info("  Buyer outreach: %d prepared", len(buyer_outreach.get("prepared", [])))
     logger.info("=" * 60)
 
     return {
         "elapsed": elapsed,
-        "total_domains": len(all_domains),
-        "emails_sent": len(outreach_result.get("sent", [])),
-        "top_domain": analyzed[0]["domain_name"] if analyzed else "none",
-        "top_value": analyzed[0].get("estimated_value", 0) if analyzed else 0,
+        "for_sale_domains": len(all_for_sale),
+        "buyer_leads": len(all_buyers),
+        "seller_outreach": len(seller_outreach.get("sent", [])),
+        "buyer_outreach": len(buyer_outreach.get("prepared", [])),
     }
