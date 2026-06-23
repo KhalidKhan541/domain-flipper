@@ -42,24 +42,11 @@ jobs:
           echo "PREFERRED_MAX=50" >> .env
           echo "EXCEPTIONAL_MAX=300" >> .env
       
-      - name: Run buyer discovery (Reddit + HN)
-        run: python -m src.scanners.buyer_discovery
-        env:
-          PYTHONUNBUFFERED: 1
-      
-      - name: Run domain broker pipeline
-        run: python -m src.main
+      - name: Run 6-agent pipeline (parallel discovery + seller outreach)
+        run: python -m src.agents
         timeout-minutes: 25
         env:
           PYTHONUNBUFFERED: 1
-      
-      - name: Upload leads
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: buyer-leads
-          path: data/buyer_leads.json
-          retention-days: 30
       
       - name: Upload reports
         uses: actions/upload-artifact@v4
@@ -69,10 +56,10 @@ jobs:
           path: data/reports/
           retention-days: 30
       
-      - name: Upload database
+      - name: Upload outreach log
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: domain-database
-          path: data/domains.db
-          retention-days: 7
+          name: outreach-log
+          path: data/outreach_log.json
+          retention-days: 30

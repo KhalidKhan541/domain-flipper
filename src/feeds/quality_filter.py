@@ -44,6 +44,12 @@ URL_SHORTENERS: set[str] = {
 SPAM_KEYWORDS: set[str] = {
     "pharmacy", "meds", "drugs", "cbd", "thc", "vape", "casino",
     "gambling", "poker", "betting", "loan", "credit", "insurance",
+    "porn", "sex", "xxx", "nude", "naked", "dating", "hookup",
+    "darkweb", "darkweb", "hacker", "crack", "exploit", "malware",
+    "ransomware", "trojan", "botnet", "ddos", "spam", "scam",
+    "fake", "counterfeit", "forged", "stolen", "hijacked",
+    "antabuse", "finasteride", "viagra", "cialis", "xanax",
+    "oxycontin", "vicodin", "adderall", "valium", "ambien",
 }
 
 # Known domain registries / subdomain hosts — exclude
