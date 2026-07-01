@@ -48,7 +48,8 @@ class SocialSearcher:
         query = " ".join(keywords[:3])
 
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 params = {
                     "q": f"{query} domain OR buying OR looking for",
                     "sort": "relevance",
@@ -95,7 +96,8 @@ class SocialSearcher:
 
         query = " OR ".join(f'"{kw}"' for kw in keywords[:3]) + " domain OR buying OR looking"
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 headers = {"Authorization": f"Bearer {self.twitter_bearer_token}"}
                 params = {
                     "query": f"({query}) -is:retweet lang:en",
@@ -132,7 +134,8 @@ class SocialSearcher:
         query = " ".join(keywords[:3])
 
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 params = {
                     "query": f"{query} domain OR buy OR looking for",
                     "tags": "story",

@@ -63,7 +63,7 @@ class DomainSourceCoordinator:
 
         for niche in NICHES:
             try:
-                keywords = await self.keyword_gen.generate(niche, max_domains=50)
+                keywords = await self.keyword_gen.generate(niche, count=50)
                 all_candidates.update(keywords)
             except Exception as e:
                 self.logger.warning(
@@ -71,7 +71,7 @@ class DomainSourceCoordinator:
                 )
 
             try:
-                thesaurus = await self.thesaurus_gen.generate(niche, max_domains=50)
+                thesaurus = await self.thesaurus_gen.generate(niche, count=50)
                 all_candidates.update(thesaurus)
             except Exception as e:
                 self.logger.warning(

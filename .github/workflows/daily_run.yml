@@ -30,7 +30,8 @@ jobs:
       
       - name: Create .env from secrets
         run: |
-          echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" >> .env
+          mkdir -p data/reports
+          echo "DISCORD_WEBHOOK_URL=${{ secrets.DISCORD_WEBHOOK_URL }}" > .env
           echo "SMTP_HOST=${{ secrets.SMTP_HOST }}" >> .env
           echo "SMTP_PORT=587" >> .env
           echo "SMTP_USER=${{ secrets.SMTP_USER }}" >> .env
@@ -41,6 +42,12 @@ jobs:
           echo "PREFERRED_MIN=10" >> .env
           echo "PREFERRED_MAX=50" >> .env
           echo "EXCEPTIONAL_MAX=300" >> .env
+          echo "DATABASE_PATH=data/domains.db" >> .env
+          echo "LOG_LEVEL=INFO" >> .env
+          echo "OFFLINE_MODE=false" >> .env
+          echo "WALLET_TYPE=binance" >> .env
+          echo "WALLET_CHAIN=base" >> .env
+          echo "CRAWLY_API_KEY=${{ secrets.CRAWLY_API_KEY }}" >> .env
       
       - name: Run 6-agent pipeline (parallel discovery + seller outreach)
         run: python -m src.agents

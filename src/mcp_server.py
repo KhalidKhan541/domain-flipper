@@ -375,10 +375,10 @@ class DomainFlipperMCP:
 
     async def tool_generate_domain_names(self, niche: str = "saas", count: int = 30, use_thesaurus: bool = True) -> dict:
         candidates: set[str] = set()
-        keywords = await self.keyword_gen.generate(niche, max_domains=count)
+        keywords = await self.keyword_gen.generate(niche, count=count)
         candidates.update(keywords)
         if use_thesaurus:
-            thesaurus = await self.thesaurus_gen.generate(niche, max_domains=count)
+            thesaurus = await self.thesaurus_gen.generate(niche, count=count)
             candidates.update(thesaurus)
         return {
             "niche": niche,

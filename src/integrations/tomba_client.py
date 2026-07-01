@@ -25,7 +25,8 @@ class TombaClient:
 
     async def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         url = f"{BASE_URL}{path}"
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, headers=self._headers, params=params) as resp:
                 resp.raise_for_status()
                 return await resp.json()

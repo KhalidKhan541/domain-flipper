@@ -12,6 +12,7 @@ from src.agents import (
     buyer_finder_reddit, buyer_finder_hn,
     seller_contact, email_sellers, email_buyers,
 )
+from src.notifiers import DiscordNotifier, EmailNotifier
 from src.utils import setup_logger
 
 
@@ -94,7 +95,7 @@ async def run_pipeline(dry_run: bool = False) -> dict:
     logger.info("Step 3/5: Matching buyers to expiring domains...")
 
     # Extract seller contacts for high-value domains
-    high_value_domains = [d for d in all_domains if d.get("estimated_value", 0) > 50]
+    high_value_domains = [d for d in all_domains if (d.get("estimated_value", 0) > 50) or (d.get("price", 0) > 50)]
     domains_to_check = [d["domain_name"] for d in high_value_domains[:30]]
 
     if domains_to_check:
@@ -116,7 +117,7 @@ async def run_pipeline(dry_run: bool = False) -> dict:
     # ============================================================
     logger.info("Step 5/5: Contacting sellers for high-value domains...")
 
-    sellers_to_contact = [d for d in all_domains if d.get("seller_emails") and d.get("estimated_value", 0) > 100]
+    sellers_to_contact = [d for d in all_domains if d.get("seller_emails") and (d.get("estimated_value", 0) > 100 or d.get("price", 0) > 50)]
 
     if sellers_to_contact:
         seller_outreach = await email_sellers.run(sellers_to_contact[:20], dry_run=dry_run)
@@ -233,6 +234,26 @@ async def run_pipeline(dry_run: bool = False) -> dict:
     md_path = report_path / f"pipeline_report_{date_str}.md"
     with open(md_path, "w") as f:
         f.write("\n".join(md_lines))
+
+    # ============================================================
+    # SEND NOTIFICATIONS (Email + Discord)
+    # ============================================================
+    logger.info("Sending notifications...")
+
+    md_text = "\n".join(md_lines)
+    notifiers = [EmailNotifier(), DiscordNotifier()]
+    for notifier in notifiers:
+        try:
+            if isinstance(notifier, EmailNotifier):
+                sent = await notifier.send_alert(md_text)
+            else:
+                sent = await notifier.send_report(md_text, all_domains[:20])
+            if sent:
+                logger.info("Report sent via %s", type(notifier).__name__)
+            else:
+                logger.warning("Failed to send report via %s", type(notifier).__name__)
+        except Exception as exc:
+            logger.error("Notifier %s failed: %s", type(notifier).__name__, exc)
 
     logger.info("=" * 60)
     logger.info("PIPELINE COMPLETE")

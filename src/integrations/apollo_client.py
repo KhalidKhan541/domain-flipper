@@ -42,7 +42,8 @@ class ApolloClient:
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         url = f"{BASE_URL}{path}"
         await self._rate_limit_wait()
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=self._headers, json=payload) as resp:
                 resp.raise_for_status()
                 return await resp.json()
@@ -50,7 +51,8 @@ class ApolloClient:
     async def _get(self, path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         url = f"{BASE_URL}{path}"
         await self._rate_limit_wait()
-        async with aiohttp.ClientSession() as session:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, headers=self._headers, params=params) as resp:
                 resp.raise_for_status()
                 return await resp.json()

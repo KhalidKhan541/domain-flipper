@@ -80,6 +80,7 @@ async def _scrape_flippa(page) -> list[dict]:
                 "tld": domain.split(".")[-1],
                 "status": "for_sale",
                 "for_sale": True,
+                "estimated_value": price,
                 "dr": 0, "referring_domains": 0, "domain_age": 0,
             })
 
@@ -134,6 +135,7 @@ async def _scrape_sedo(page) -> list[dict]:
                 "tld": domain.split(".")[-1],
                 "status": "for_sale",
                 "for_sale": True,
+                "estimated_value": price,
                 "dr": 0, "referring_domains": 0, "domain_age": 0,
             })
 
@@ -187,6 +189,7 @@ async def _scrape_afternic(page) -> list[dict]:
                 "tld": domain.split(".")[-1],
                 "status": "for_sale",
                 "for_sale": True,
+                "estimated_value": price,
                 "dr": 0, "referring_domains": 0, "domain_age": 0,
             })
 
@@ -238,6 +241,7 @@ async def _scrape_dan(page) -> list[dict]:
                 "tld": domain.split(".")[-1],
                 "status": "for_sale",
                 "for_sale": True,
+                "estimated_value": price,
                 "dr": 0, "referring_domains": 0, "domain_age": 0,
             })
 
@@ -290,6 +294,7 @@ async def _scrape_godaddy_auctions(page) -> list[dict]:
                 "tld": domain.split(".")[-1],
                 "status": "auction",
                 "for_sale": True,
+                "estimated_value": price,
                 "dr": 0, "referring_domains": 0, "domain_age": 0,
             })
 
@@ -306,18 +311,21 @@ async def run() -> list[dict]:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        )
-        page = await context.new_page()
 
-        # Run all scrapers in parallel
+        async def _make_page():
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            )
+            return await ctx.new_page()
+
+        # Each scraper gets its own page to avoid race conditions
+        pages = [await _make_page() for _ in range(5)]
         results = await asyncio.gather(
-            _scrape_flippa(page),
-            _scrape_sedo(page),
-            _scrape_afternic(page),
-            _scrape_dan(page),
-            _scrape_godaddy_auctions(page),
+            _scrape_flippa(pages[0]),
+            _scrape_sedo(pages[1]),
+            _scrape_afternic(pages[2]),
+            _scrape_dan(pages[3]),
+            _scrape_godaddy_auctions(pages[4]),
             return_exceptions=True,
         )
 

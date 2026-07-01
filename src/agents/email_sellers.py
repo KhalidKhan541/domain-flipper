@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -11,6 +12,8 @@ from pathlib import Path
 
 from src.config import settings
 from src.utils import setup_logger
+
+logger = logging.getLogger(__name__)
 
 SELLER_BROKER_TEMPLATE = """\
 Hi {contact_name},
@@ -51,6 +54,7 @@ khalid.khan46571@gmail.com
 
 def _send_email(to_email: str, subject: str, body: str) -> bool:
     if not settings.smtp_host or not settings.smtp_user or not settings.smtp_pass:
+        logger.warning("SMTP not configured — skipping email to %s", to_email)
         return False
     try:
         msg = MIMEMultipart("alternative")
@@ -59,7 +63,7 @@ def _send_email(to_email: str, subject: str, body: str) -> bool:
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "plain"))
 
-        server = smtplib.SMTP(settings.smtp_host, settings.smtp_port)
+        server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30)
         try:
             server.ehlo()
             server.starttls()
@@ -69,7 +73,14 @@ def _send_email(to_email: str, subject: str, body: str) -> bool:
         finally:
             server.quit()
         return True
-    except Exception:
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error("SMTP auth failed for %s: %s (check App Password)", to_email, e)
+        return False
+    except smtplib.SMTPException as e:
+        logger.error("SMTP error sending to %s: %s", to_email, e)
+        return False
+    except Exception as e:
+        logger.error("Unexpected error sending email to %s: %s", to_email, e)
         return False
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -12,6 +13,8 @@ from typing import Optional
 
 from src.config import settings
 from src.utils import setup_logger
+
+logger = logging.getLogger(__name__)
 
 SELLER_TEMPLATE = """\
 Hi {contact_name},
@@ -58,11 +61,12 @@ def _build_message(to_email: str, subject: str, body: str) -> MIMEMultipart:
 def _send_email(to_email: str, subject: str, body: str) -> bool:
     """Send email via SMTP (synchronous)."""
     if not settings.smtp_host or not settings.smtp_user or not settings.smtp_pass:
+        logger.warning("SMTP not configured — skipping email to %s", to_email)
         return False
 
     try:
         msg = _build_message(to_email, subject, body)
-        server = smtplib.SMTP(settings.smtp_host, settings.smtp_port)
+        server = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30)
         try:
             server.ehlo()
             server.starttls()
@@ -72,7 +76,14 @@ def _send_email(to_email: str, subject: str, body: str) -> bool:
         finally:
             server.quit()
         return True
-    except Exception:
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error("SMTP auth failed for %s: %s (check App Password)", to_email, e)
+        return False
+    except smtplib.SMTPException as e:
+        logger.error("SMTP error sending to %s: %s", to_email, e)
+        return False
+    except Exception as e:
+        logger.error("Unexpected error sending email to %s: %s", to_email, e)
         return False
 
 
@@ -127,8 +138,8 @@ async def run(domains: list[dict], dry_run: bool = False) -> list[dict]:
             skipped.append({"domain": domain, "reason": "no_email"})
             continue
 
-        # Only email domains worth > $100
-        if estimated_value < 100:
+        # Only email domains worth > $100 (or price > $50 as fallback)
+        if estimated_value < 100 and domain_info.get("price", 0) < 50:
             skipped.append({"domain": domain, "reason": f"low_value_${estimated_value}"})
             continue
 

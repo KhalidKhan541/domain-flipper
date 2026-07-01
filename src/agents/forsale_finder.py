@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 
 from playwright.async_api import async_playwright
+
+logger = logging.getLogger(__name__)
 
 from src.utils import setup_logger
 
@@ -66,6 +69,7 @@ async def _check_domain(page, domain: str) -> dict | None:
                 "platform": platform,
                 "status": "for_sale",
                 "for_sale": True,
+                "estimated_value": price,
                 "dr": 0, "referring_domains": 0, "domain_age": 0,
             }
 
@@ -100,17 +104,25 @@ async def run(candidate_domains: list[str] | None = None) -> list[dict]:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        )
-        page = await context.new_page()
 
-        semaphore = asyncio.Semaphore(5)
+        async def _make_page():
+            ctx = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            )
+            return await ctx.new_page()
+
+        concurrency = 5
+        pages = [await _make_page() for _ in range(concurrency)]
+        semaphore = asyncio.Semaphore(concurrency)
         results: list[dict] = []
+        page_idx = 0
 
         async def check_one(domain: str):
+            nonlocal page_idx
             async with semaphore:
-                result = await _check_domain(page, domain)
+                pg = pages[page_idx % concurrency]
+                page_idx += 1
+                result = await _check_domain(pg, domain)
                 if result:
                     results.append(result)
 

@@ -98,7 +98,7 @@ class BrokerCoordinator:
                     if isinstance(broker, Exception):
                         self.logger.warning("Broker analysis failed for %s: %s", name, broker)
                         broker = {
-                            "marketplace": {"is_listed": False, "listings": [], "min_price": 0, "score": 0},
+                            "marketplace_score": 0,
                             "buyer_leads": {"total_leads": 0, "leads": []},
                             "estimated_value": 0,
                             "commission": {"amount": 0, "rate": 0.15},
@@ -115,7 +115,7 @@ class BrokerCoordinator:
                     domain["category"] = commercial.get("category", "general") or "general"
                     domain["commercial_score"] = commercial.get("commercial_score", 50) or 50
 
-                    domain["marketplace"] = broker.get("marketplace") or {}
+                    domain["marketplace_score"] = broker.get("marketplace_score") or 0
                     domain["buyer_leads"] = broker.get("buyer_leads") or {"total_leads": 0, "leads": []}
                     domain["estimated_value"] = broker.get("estimated_value") or 0
                     domain["commission"] = broker.get("commission") or {"amount": 0, "rate": 0.15}
@@ -154,12 +154,12 @@ class BrokerCoordinator:
         all_candidates: set[str] = set()
         for niche in NICHES:
             try:
-                keywords = await self.keyword_gen.generate(niche, max_domains=50)
+                keywords = await self.keyword_gen.generate(niche, count=50)
                 all_candidates.update(keywords)
             except Exception as e:
                 self.logger.warning("KeywordGenerator failed for niche '%s': %s", niche, e)
             try:
-                thesaurus = await self.thesaurus_gen.generate(niche, max_domains=50)
+                thesaurus = await self.thesaurus_gen.generate(niche, count=50)
                 all_candidates.update(thesaurus)
             except Exception as e:
                 self.logger.warning("ThesaurusGenerator failed for niche '%s': %s", niche, e)
